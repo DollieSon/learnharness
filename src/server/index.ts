@@ -54,3 +54,7 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 // No import side effects; the boot sync lives in stores.ts.
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
+// Local Whisper dictation (local Whisper wave, 2026-11-03): status, downloads,
+// the managed whisper-server process and transcription.
+export { whisperStatusResponse, whisperDownloadResponse, whisperCancelResponse, whisperTranscribeResponse } from "./whisper/http.ts";
+export { syncWhisper } from "./whisper/process.ts";

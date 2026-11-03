@@ -39,6 +39,7 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	syncWhisper,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -129,5 +130,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// Local Whisper follows the dictation engine/model (owner, 2026-11-03).
+	if (section === "dictation") void syncWhisper().catch(() => {});
 	return Response.json({ settings: next });
 }
