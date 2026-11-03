@@ -328,7 +328,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	/** Frames captured before the socket is OPEN (mitigation A): flushed in
 	 *  order on open; capped at 256 frames (≈32s) with the oldest dropped;
 	 *  cleared at teardown so a dead run's audio can't leak into the next. */
-	const pendingRef = useRef<ArrayBuffer[]>([]);
+	const pendingRef = useRef<Int16Array[]>([]);
 	const genRef = useRef(0); // stale-handler guard (dictate pattern)
 	const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectsRef = useRef(0);
@@ -340,8 +340,9 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	const waitersRef = useRef<Array<() => void>>([]);
 	/** The running engine (null until start() resolves it). */
 	const engineRef = useRef<DictationEngine | null>(null);
-	/** Local Whisper: the run's captured PCM16 frames, sent once at stop. */
-	const framesRef = useRef<ArrayBuffer[]>([]);
+	/** Local Whisper: the run's captured PCM16 frames (the worklet posts
+	 *  Int16Array views), sent once at stop. */
+	const framesRef = useRef<Int16Array[]>([]);
 	/** The in-flight transcribe request (aborted by cancel/teardown). */
 	const transcribeRef = useRef<AbortController | null>(null);
 	/** Hold-to-talk: when the hold began (null = not a hold-started run). */
@@ -518,7 +519,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			const worklet = new AudioWorkletNode(ctx, "pcm-capture");
 			workletRef.current = worklet;
 			worklet.port.onmessage = (e) => {
-				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
+				// pcm-capture.js posts `buffer` as an Int16Array (its buffer transferred).
+				const msg = e.data as { type: string; rms?: number; buffer?: Int16Array };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
 				} else if (msg.type === "audio") {

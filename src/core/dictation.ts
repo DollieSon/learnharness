@@ -179,9 +179,11 @@ export interface WhisperStatus {
 /** The transcribe route's refusal when local Whisper cannot run yet. */
 export const WHISPER_NOT_READY_CODE = "whisper_not_ready" as const;
 
-/** Wrap captured PCM16 mono frames (the pcm-capture worklet's output) in a
- *  canonical 44-byte WAV header — what whisper-server reads. */
-export function encodeWavPcm16(frames: readonly ArrayBuffer[], sampleRate: number = WHISPER_SAMPLE_RATE): Uint8Array {
+/** Wrap captured PCM16 mono frames in a canonical 44-byte WAV header — what
+ *  whisper-server reads. The pcm-capture worklet posts Int16Array frames, so
+ *  views are copied BYTE-WISE: `new Uint8Array(int16Array)` would convert each
+ *  sample to one truncated byte (garbled audio → Whisper hallucinations). */
+export function encodeWavPcm16(frames: readonly (ArrayBuffer | ArrayBufferView)[], sampleRate: number = WHISPER_SAMPLE_RATE): Uint8Array {
 	const dataBytes = frames.reduce((sum, frame) => sum + frame.byteLength, 0);
 	const out = new Uint8Array(44 + dataBytes);
 	const view = new DataView(out.buffer);
@@ -201,7 +203,7 @@ export function encodeWavPcm16(frames: readonly ArrayBuffer[], sampleRate: numbe
 	view.setUint32(40, dataBytes, true);
 	let offset = 44;
 	for (const frame of frames) {
-		out.set(new Uint8Array(frame), offset);
+		out.set(ArrayBuffer.isView(frame) ? new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength) : new Uint8Array(frame), offset);
 		offset += frame.byteLength;
 	}
 	return out;

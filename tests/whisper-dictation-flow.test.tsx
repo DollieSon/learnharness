@@ -27,10 +27,11 @@ class Worklet {
 	constructor() { Worklet.all.push(this); }
 	connect() {}
 	disconnect() {}
-	/** One 2048-sample PCM16 frame (what pcm-capture.js posts). */
-	frame(value = 1) {
+	/** One 2048-sample PCM16 frame, posted exactly as pcm-capture.js does:
+	 *  `buffer` is the Int16Array itself, not its ArrayBuffer. */
+	frame(value = 0x1234) {
 		const samples = new Int16Array(2048).fill(value);
-		this.port.onmessage?.({ data: { type: "audio", buffer: samples.buffer } });
+		this.port.onmessage?.({ data: { type: "audio", buffer: samples } });
 	}
 }
 
@@ -123,6 +124,10 @@ test("local Whisper: no token or socket; frames become one WAV request whose tex
 	assert.equal(request.headers.get("x-learnharness-whisper"), "1");
 	assert.equal(request.body.byteLength, 44 + 3 * 4096);
 	assert.equal(new TextDecoder().decode(request.body.slice(0, 4)), "RIFF");
+	// The samples survive byte-for-byte (regression: Int16Array frames were
+	// once squashed to one truncated byte per sample).
+	assert.deepEqual([...new Int16Array(request.body.slice(44).buffer).slice(0, 3)], [0x1234, 0x1234, 0x1234]);
+	assert.ok(new Int16Array(request.body.slice(44).buffer).every((sample) => sample === 0x1234));
 	assert.deepEqual(f.state.appends, ["hello world"]);
 	assert.equal(f.dictation.phase, "idle");
 	assert.equal(f.state.tokenCalls, 0, "local Whisper never mints a Deepgram token");

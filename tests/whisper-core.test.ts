@@ -56,6 +56,14 @@ test("PCM16 frames become a canonical 16 kHz mono WAV", () => {
 	assert.equal(WHISPER_MAX_WAV_BYTES, 44 + 600 * 16_000 * 2);
 });
 
+test("Int16Array frames (the worklet's real shape) are copied byte-for-byte", () => {
+	const samples = new Int16Array([0x1234, -2, 300, -32768, 32767]);
+	const offsetView = new Int16Array(new Int16Array([9, 9, 7, -7]).buffer, 4, 2); // a view with a byteOffset
+	const wav = encodeWavPcm16([samples, offsetView]);
+	assert.equal(new DataView(wav.buffer).getUint32(40, true), 14);
+	assert.deepEqual([...new Int16Array(wav.buffer.slice(44))], [0x1234, -2, 300, -32768, 32767, 7, -7]);
+});
+
 test("the dictation section keeps each valid field independently", () => {
 	const record = sanitizeUserSettings({ version: 1, dictation: { language: "xx", engine: "whisper-local", whisperModel: "small" } });
 	assert.deepEqual(record?.dictation, { engine: "whisper-local", whisperModel: "small" });
