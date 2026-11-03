@@ -34,8 +34,9 @@ import {
 	isTypingSurface,
 	kbdEventForAction,
 	KEYBOARD_ACTIONS,
+	releasesBinding,
 } from "@/src/core";
-import { isDictationActive } from "@/components/dictation";
+import { HOLD_DICTATION_END_EVENT, isDictationActive } from "@/components/dictation";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
@@ -58,6 +59,16 @@ export function KeyboardShortcuts() {
 	handlersRef.current = { router, setCheatOpen, openSettings };
 
 	useEffect(() => {
+		/** The binding being held for hold-to-talk (null = not holding). */
+		let holding: string | null = null;
+		const endHold = () => {
+			if (holding === null) return;
+			holding = null;
+			window.dispatchEvent(new CustomEvent(HOLD_DICTATION_END_EVENT));
+		};
+		const onKeyUp = (e: KeyboardEvent) => {
+			if (holding !== null && releasesBinding(holding, e)) endHold();
+		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
@@ -130,6 +141,14 @@ export function KeyboardShortcuts() {
 				case "cheat-sheet":
 					handlersRef.current.setCheatOpen(true);
 					break;
+				case "hold-dictation":
+					// Press starts; key-repeat while held is swallowed; the keyup
+					// (or losing window focus) ends the hold.
+					e.preventDefault();
+					if (e.repeat || holding !== null) break;
+					holding = eventBinding(e);
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				case "find":
 					// The mounted surface owns Find (session text / graph nodes).
 					// Claim Mod+F so Chromium's whole-window finder cannot open too.
@@ -141,7 +160,14 @@ export function KeyboardShortcuts() {
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
+		window.addEventListener("keyup", onKeyUp);
+		window.addEventListener("blur", endHold);
+		return () => {
+			window.removeEventListener("keydown", onKeyDown);
+			window.removeEventListener("keyup", onKeyUp);
+			window.removeEventListener("blur", endHold);
+			endHold();
+		};
 	}, [cheatOpen]);
 
 	return <CheatSheet open={cheatOpen} onClose={() => setCheatOpen(false)} />;
