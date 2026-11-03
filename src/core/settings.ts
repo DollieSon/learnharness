@@ -34,7 +34,10 @@ import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
-import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import {
+	DEFAULT_WHISPER_MODEL, isDictationEngine, isDictationLanguage, isWhisperModel,
+	type DictationEngine, type DictationLanguage, type WhisperModelId,
+} from "./dictation.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -338,6 +341,10 @@ export interface GeneralSettings {
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
 	language?: DictationLanguage;
+	/** Absent = the server platform's default (see defaultDictationEngine). */
+	engine?: DictationEngine;
+	/** The local Whisper model to load. */
+	whisperModel?: WhisperModelId;
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
@@ -488,7 +495,8 @@ export interface UserSettings {
 export interface FactorySettings {
 	version: number;
 	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
+	/** No factory engine: it depends on the server platform. */
+	dictation: Required<Omit<DictationSettings, "engine">>;
 	appearance: {
 		mode: "dark" | "light";
 		background: string | null;
@@ -508,7 +516,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	general: { autoUpdate: true },
-	dictation: { language: "en" },
+	dictation: { language: "en", whisperModel: DEFAULT_WHISPER_MODEL },
 	appearance: {
 		mode: "dark",
 		background: null, // the dark default (#141414) lives in the mode's derivation curve
@@ -808,10 +816,13 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== undefined) {
 		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
+		// Each field survives on its own: one invalid value never drops the others.
+		const fields = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+		const dictation: DictationSettings = {};
+		if (isDictationLanguage(fields.language)) dictation.language = fields.language;
+		if (isDictationEngine(fields.engine)) dictation.engine = fields.engine;
+		if (isWhisperModel(fields.whisperModel)) dictation.whisperModel = fields.whisperModel;
+		out.dictation = dictation;
 	}
 	if (r.claudeCode !== undefined) {
 		const raw = r.claudeCode;

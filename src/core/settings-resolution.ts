@@ -73,7 +73,8 @@ export type EffectiveAppearance = FactorySettings["appearance"];
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {
 	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
+	/** `engine` stays absent when unset: its default is the server platform's. */
+	dictation: FactorySettings["dictation"] & Pick<DictationSettings, "engine">;
 	agent: {
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
@@ -189,6 +190,8 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
+			whisperModel: record?.dictation?.whisperModel ?? FACTORY_SETTINGS.dictation.whisperModel,
+			...(record?.dictation?.engine ? { engine: record.dictation.engine } : {}),
 		},
 		agent: {
 			models,
