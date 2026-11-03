@@ -49,13 +49,15 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 - **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
 - **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
 
-Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional dictation and web search use separate service keys.
+Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional web search uses a separate service key; dictation can run locally on Windows or use a Deepgram key.
 
 Advanced users can set a [prompt-cache retention preference](docs/compaction-accounting.md#prompt-cache-retention) for each model slot under **Settings → Agent → Models → Show advanced settings**. Leaving it at **Pi default** preserves existing provider behavior; longer retention can increase cache-write costs.
 
 All three platforms support in-app updates.
 
-**Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+**Dictation:** Choose an engine under **Settings → Providers → Dictation**. On Windows the default is **Local Whisper**: LearnHarness downloads a pinned [whisper.cpp](https://github.com/ggml-org/whisper.cpp) CUDA build and a Whisper model, runs it on your NVIDIA GPU while the app is open, and keeps audio on your machine. No key is needed. See [local Whisper dictation](docs/dictation-whisper.md). Hold **Ctrl+Space** to talk, or press **Mod+D** to start and stop.
+
+For **Deepgram**, create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
 ## Your keys, your data
 

@@ -9,6 +9,7 @@ Press **?** outside a text field for the in-app cheat sheet.
 | Action | Binding |
 |---|---|
 | Toggle dictation | Mod+D |
+| Hold to dictate (release to stop; a tap under 300 ms is discarded) | Mod+Space |
 | Open settings | Mod+, |
 | Model selector | Mod+K |
 | Cycle thinking level | Shift+Tab |
@@ -61,8 +62,14 @@ handling; this is not a guarantee for every OS/IME or layout-specific key.
   question/problem or abort a running turn. Confirmed turn abort signals the
   server, including for background turns; it also detaches any local stream.
 
-To keep dictated text, stop dictation with **Mod+D** / Stop rather than the
-fallback Esc cancellation.
+To keep dictated text, stop dictation with **Mod+D** / Stop (or release the
+hold key) rather than the fallback Esc cancellation.
+
+**Hold to dictate** starts on press and stops when the key or its modifier is
+released, or when the window loses focus. It only starts from idle: during a
+run started with **Mod+D**, the hold key does nothing. Because Mod accepts Ctrl
+on every platform, the default works as **Ctrl+Space** everywhere; on macOS
+**⌘Space** belongs to Spotlight and never reaches the app.
 
 ## Enter and submission
 
