@@ -16,6 +16,7 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import {
+	blogShareAppend,
 	needsContinuation,
 	pendingQuestionOf,
 	failedResponseAtEnd,
@@ -703,6 +704,15 @@ export class SessionModel {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
 			optimistic.push({ ...newNextMessage(), id: localId() });
+		} else if (input.type === "share-blog-text") {
+			// The blog card's one-way share: the marker lands optimistically
+			// (the card flips to "shared"); an invalid share is the
+			// server's honest 400, so a local refusal just skips the echo.
+			try {
+				optimistic.push({ ...blogShareAppend([...this.base, ...this.tail], input.jobId), id: localId() });
+			} catch {
+				/* the POST reports it */
+			}
 		} else if (input.type === "answer") {
 			const tool = pendingCallTool([...this.base, ...this.tail], input.toolCallId) ?? "quiz";
 			const result = { ...newAnswerResult(input.toolCallId, tool, input.answer), id: localId() };

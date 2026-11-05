@@ -5,6 +5,11 @@ import {
 	buildSubagentSteer,
 	isSubagentFailure,
 	piUsageToStep,
+	type BlogResult,
+	type BlogToolInput,
+	type FactCheckResult,
+	type FactCheckToolInput,
+	type SubagentResult,
 	type DemoResult,
 	type DemoToolInput,
 	type JobKind,
@@ -26,6 +31,7 @@ import * as path from "node:path";
 import type { ModelRole } from "../../../config.ts";
 import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
 import type { ChatStore, JobStore } from "../../core/ports.ts";
+import { runBlogReader, runFactChecker } from "./blog.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { runResearcherAgent } from "./researcher.ts";
@@ -62,7 +68,16 @@ export const visualModelOverride: { current?: PiEngine } = {};
 export const pdfModelOverride: { current?: PiEngine } = {};
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
+type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput | BlogToolInput | FactCheckToolInput;
+
+/** The global blog-review settings the blog job reads (blog review plan M3):
+ *  both default OFF (owner, 2026-11-06). */
+export interface BlogJobSettings {
+	/** Share the full article text with the agent when the brief arrives. */
+	autoShareFullText: boolean;
+	/** Run the isolated AI judge on hidden page content. */
+	injectionCheck: boolean;
+}
 
 export interface JobRunnerDeps {
 	chatStore: ChatStore;
@@ -92,6 +107,8 @@ export interface JobRunnerDeps {
 	 *  Injected because the agent layer may not read the key store; absent
 	 *  in tests that inject engines directly (test engines never owe a key). */
 	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
+	/** The blog job's settings, read FRESH per job (absent = both off). */
+	blogSettings?: () => BlogJobSettings;
 }
 
 export interface JobRunner {
@@ -123,6 +140,10 @@ const KIND_ROLE: Record<JobKind, ModelRole> = {
 	demo: "demoBuilder",
 	visual: "visualMaker",
 	pdf: "pdfReader",
+	// Blog review (plan M3): the reader, injection judge and fact-checker run
+	// on the researcher's engine — the "assistants that research" tier.
+	blog: "researcher",
+	fact_check: "researcher",
 };
 
 export function createJobRunner(deps: JobRunnerDeps): JobRunner {
@@ -186,6 +207,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		demo: (jobId, engine, input, loop) => runDemoJob(jobId, engine, input, loop),
 		visual: (jobId, engine, input, loop) => runVisualJob(jobId, engine, input, loop),
 		pdf: (jobId, engine, input, loop) => runPdfJob(jobId, engine, input, loop),
+		blog: (jobId, engine, input, loop) => runBlogJob(jobId, engine, input, loop),
+		fact_check: (jobId, engine, input, loop) => runFactCheckJob(jobId, engine, input, loop),
 	};
 
 	async function runJob(jobId: string, input?: JobToolInput): Promise<void> {
@@ -212,13 +235,14 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		// instead of waiting forever on a job it already dispatched.
 		const refuse = async (reason: string): Promise<void> => {
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
-			const resolved = resolveInput(job, input) as
-				| ResearchToolInput
-				| DemoToolInput
-				| VisualToolInput
-				| PdfToolInput
-				| undefined;
+			const resolved = resolveInput(job, input) as JobToolInput | undefined;
 			const pdf = resolved as PdfToolInput | undefined;
+			if (job.kind === "blog" || job.kind === "fact_check") {
+				await finishJob(jobId, job.kind === "blog"
+					? blogFailure(typeof (resolved as BlogToolInput | undefined)?.url === "string" ? (resolved as BlogToolInput).url : "", reason)
+					: factCheckFailure(typeof (resolved as FactCheckToolInput | undefined)?.blog_job === "string" ? (resolved as FactCheckToolInput).blog_job : "", reason));
+				return;
+			}
 			const failure: ResearchResult | DemoResult | VisualResult | PdfResult =
 				job.kind === "research"
 					? { brief: `Research failed: ${reason}`, sources: [] }
@@ -300,7 +324,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 * Save the computation outcome and session delivery obligation together.
 	 * Worker liveness ends after cleanup, not after a lesson consumes the result.
 	 */
-	async function finishJob(jobId: string, result: ResearchResult | DemoResult | VisualResult | PdfResult): Promise<void> {
+	async function finishJob(jobId: string, result: SubagentResult): Promise<void> {
 		const job = jobStore.getJob(jobId);
 		if (!job) return;
 		// Aborted mid-run (abortJob flips the record before
@@ -517,10 +541,110 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		}
 	}
 
+	// ─── blog review (blog review plan M3) ───────────────────────────────────
+
+	async function runBlogJob(
+		jobId: string,
+		model: PiEngine | undefined,
+		passedInput: JobToolInput | undefined,
+		loop: LoopContext,
+	): Promise<void> {
+		const ctx = jobContext(jobId);
+		if (!ctx) return;
+		const input = (passedInput ?? resolveInput(ctx.job, passedInput)) as BlogToolInput | undefined;
+		const url = typeof input?.url === "string" ? input.url.trim() : "";
+		if (!url) {
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: "blog URL unavailable" });
+			await finishJob(jobId, blogFailure("", "no URL was given"));
+			return;
+		}
+		const settings = deps.blogSettings?.() ?? { autoShareFullText: false, injectionCheck: false };
+		try {
+			jobStore.updateJob(jobId, { activity: "reading the page locally" });
+			const result = await runBlogReader(url, {
+				engine: model,
+				injectionCheck: settings.injectionCheck,
+				autoShareFullText: settings.autoShareFullText,
+				abortSignal: loop.abortSignal,
+				chatId: loop.chatId,
+				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+			});
+			if (result.error && stillRunning(jobId)) jobStore.updateJob(jobId, { error: result.error });
+			await finishJob(jobId, result);
+		} catch (err) {
+			if (loop.abortSignal.aborted) return;
+			const reason = err instanceof Error ? err.message : String(err);
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, blogFailure(url, reason));
+		}
+	}
+
+	async function runFactCheckJob(
+		jobId: string,
+		model: PiEngine | undefined,
+		passedInput: JobToolInput | undefined,
+		loop: LoopContext,
+	): Promise<void> {
+		const ctx = jobContext(jobId);
+		if (!ctx) return;
+		const input = (passedInput ?? resolveInput(ctx.job, passedInput)) as FactCheckToolInput | undefined;
+		const blogJobId = typeof input?.blog_job === "string" ? input.blog_job.trim() : "";
+		const blogJob = blogJobId ? jobStore.getJob(blogJobId) : null;
+		const blog = blogJob?.result as BlogResult | undefined;
+		if (!blogJob || blogJob.chatId !== ctx.chatId || blogJob.kind !== "blog" || !blog || isSubagentFailure("blog", blog)) {
+			const reason = `no finished blog job "${blogJobId}" in this lesson`;
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, factCheckFailure(blogJobId, reason));
+			return;
+		}
+		try {
+			jobStore.updateJob(jobId, { activity: "fact-checking" });
+			const result = await runFactChecker(blogJobId, blog, {
+				engine: model,
+				search: deps.searchProvider,
+				abortSignal: loop.abortSignal,
+				chatId: loop.chatId,
+				onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+				onToolStart: (toolName, args) => {
+					jobStore.updateJob(jobId, { activity: activityLine(toolName, args as { query?: string; url?: string } | undefined) });
+				},
+			});
+			if (result.error && stillRunning(jobId)) jobStore.updateJob(jobId, { error: result.error });
+			await finishJob(jobId, result);
+		} catch (err) {
+			if (loop.abortSignal.aborted) return;
+			const reason = err instanceof Error ? err.message : String(err);
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, { ...factCheckFailure(blogJobId, reason), url: blog.finalUrl || blog.url, title: blog.title });
+		}
+	}
+
 	return { runJob };
 }
 
 // ─── module-level pure helpers ──────────────────────────────────────────────
+
+function blogFailure(url: string, reason: string): BlogResult {
+	return {
+		url,
+		finalUrl: url,
+		title: "",
+		thesis: "",
+		outline: [],
+		claims: [],
+		takeaways: [],
+		hidden: { findings: [], judge: null, judgeSkipped: false, blockedRequests: 0 },
+		fullText: "",
+		fullTextTruncated: false,
+		autoShared: false,
+		error: reason,
+	};
+}
+
+function factCheckFailure(blogJobId: string, reason: string): FactCheckResult {
+	return { blogJobId, url: "", title: "", summary: "", verdicts: [], omissions: [], relatedTopics: [], error: reason };
+}
 
 /** Failure shape (W6 brief): html === "" with "FAILED: …" notes. */
 function isDemoFailure(result: DemoResult): boolean {

@@ -33,7 +33,7 @@ import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
-import { isSearchEngineId, type SearchSettings } from "./search.ts";
+import { isSearchEngineId, type BlogSettings, type SearchSettings } from "./search.ts";
 import {
 	DEFAULT_WHISPER_MODEL, isDictationEngine, isDictationLanguage, isWhisperModel,
 	type DictationEngine, type DictationLanguage, type WhisperModelId,
@@ -363,6 +363,13 @@ export interface AgentSettings {
 	 *  `searxng.enabled` turns on the app-managed local engine (blog review
 	 *  plan M2, 2026-11-06), which then leads the auto order. */
 	search?: SearchSettings;
+	/** Blog review (plan M3, owner 2026-11-06), both OFF by default:
+	 *  `autoShareFullText` hands the cleaned article text (fenced as
+	 *  untrusted) to the agent with the brief — otherwise only the brief is
+	 *  shared and the learner can share the text per lesson from the card;
+	 *  `injectionCheck` runs the isolated AI judge on hidden page content
+	 *  (costs tokens, so opt-in). */
+	blog?: BlogSettings;
 	/** Prober graph tools (wave 7, owner ruling 2026-09-23): read-only
 	 *  knowledge-graph views for the prober agent — a session list +
 	 *  per-session propositions with understanding levels. Its SUBJECT
@@ -728,6 +735,8 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		}
 		if (Object.keys(search).length) out.search = search;
 	}
+	const blog = sanitizeBlogSettings(raw.blog);
+	if (blog) out.blog = blog;
 	// Prober graph tools (wave 7): its own agent-section subsection —
 	// lenient read side (a bad shape drops the key and the default ON
 	// resumes; the write side's parser is strict).
@@ -737,6 +746,16 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		else if (typeof enabled === "boolean") out.graphTools = { enabled };
 	}
 	return out;
+}
+
+/** Lenient read side of agent.blog: non-boolean fields drop. */
+function sanitizeBlogSettings(raw: unknown): BlogSettings | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	const out: BlogSettings = {};
+	if (typeof r.autoShareFullText === "boolean") out.autoShareFullText = r.autoShareFullText;
+	if (typeof r.injectionCheck === "boolean") out.injectionCheck = r.injectionCheck;
+	return Object.keys(out).length ? out : null;
 }
 
 function sanitizeMdRendering(raw: unknown): MdRenderingSettings {

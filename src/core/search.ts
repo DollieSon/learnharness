@@ -43,6 +43,12 @@ export function isSearchEngineId(value: unknown): value is SearchEngineId {
 /** The settings record's search section (agent.search). `engine` is an
  *  optional explicit pin; `searxng.enabled` turns the app-managed local
  *  engine on (absent = off, owner 2026-11-06). */
+/** Blog review settings (blog review plan M3): both default OFF. */
+export interface BlogSettings {
+	autoShareFullText?: boolean;
+	injectionCheck?: boolean;
+}
+
 export interface SearchSettings {
 	engine?: SearchEngineId;
 	searxng?: { enabled: boolean };

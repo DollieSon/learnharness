@@ -37,6 +37,7 @@ import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import {
+	blogTextShared,
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	cliContextWindowOf,
@@ -52,7 +53,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, DumbbellIcon, FileTextIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -128,11 +129,19 @@ const EXPAND_DIST = 16;
  * local state in one pull. sendText feeds the demo error-fix loop.
  * (contracts.ts "THE ASYNC PROTOCOL" §4.)
  */
+export type BlogShareState = "shared" | "blocked" | "ready";
+
 export const ChatActionsContext = createContext<{
 	chatId: string;
 	syncFromServer: () => Promise<void>;
 	/** Send a user message into the session (demo error-fix loop, W6). */
 	sendText: (text: string) => void;
+	/** The blog card's one-way "Share full text with the agent" (M3). */
+	shareBlogText?: (jobId: string) => void;
+	/** The share button's state for one blog job: already shared (auto or
+	 *  earlier click), blocked for now (a turn running or a question
+	 *  open), or ready. */
+	blogShareState?: (jobId: string) => BlogShareState;
 	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
 	 *  deep-link into the same SetupDialog the send interception uses. */
 	openSetup: () => void;
@@ -1265,6 +1274,11 @@ export function Chat({
 				sendText: (t: string) => {
 					void send({ type: "text", text: t });
 				},
+				shareBlogText: (jobId: string) => {
+					void send({ type: "share-blog-text", jobId });
+				},
+				blogShareState: (jobId: string) =>
+					blogTextShared(nativeMessages, jobId) ? "shared" : busy || pending ? "blocked" : "ready",
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
@@ -1451,6 +1465,19 @@ export function Chat({
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-blog-full-text":
+												// The learner's one-way article share (blog review
+												// plan M3): chrome, the same register as Next problem.
+												return (
+													<div
+														key={pi}
+														data-testid="blog-text-shared-line"
+														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
+													>
+														<FileTextIcon className="size-3" />
+														Shared the article's full text
+													</div>
+												);
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1886,7 +1913,7 @@ export function escAbortTarget(s: {
 	 *  abort (a live turn can be running BEHIND an idle problem only in
 	 *  teaching sessions — practice problems end their pose turns). */
 	problem: boolean;
-	busy: boolean;
+	busy?: boolean;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
 	if (s.mermaidFocus) return "mermaid";

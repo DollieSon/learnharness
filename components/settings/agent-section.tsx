@@ -31,7 +31,9 @@
  * grays whole-row (a choice without a key would only BLOCK the other
  * engine's auto-activation).
  *
- * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
+ * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf;
+ * plus blog (blog review plan M3, 2026-11-06 — one switch for reading AND
+ * fact-checking) and its two agent.blog switches.
  * Absent key = enabled in the schema; the UI writes explicit booleans for
  * all four (simpler to reason about, sanitize-equivalent).
  *
@@ -97,7 +99,23 @@ const ENGINE_LABELS: Record<MenuEngine, string> = { searxng: "SearXNG (local)", 
 
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
-export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf", "blog"] as const;
+
+/** Row hints for toggles whose name alone doesn't say enough. */
+const TOOL_HINTS: Partial<Record<(typeof TOGGLE_TOOLS)[number], string>> = {
+	blog: "Read and fact-check article links (also turns off the fact-checker)",
+};
+
+/** Compose one blog-review switch (blog review plan M3): its own
+ *  agent.blog subsection, the rest carried verbatim. Pure — exported for
+ *  tests. */
+export function composeBlogSetting(
+	agent: AgentSettings | undefined,
+	key: "autoShareFullText" | "injectionCheck",
+	on: boolean,
+): AgentSettings {
+	return { ...agent, blog: { ...agent?.blog, [key]: on } };
+}
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -820,6 +838,7 @@ export function AgentSection({
 					<SettingsRow
 						key={id}
 						label={`Tool · ${id}`}
+						hint={TOOL_HINTS[id]}
 						testid={`tool-row-${id}`}
 					>
 						<Toggle
@@ -829,6 +848,41 @@ export function AgentSection({
 						/>
 					</SettingsRow>
 				))}
+				{(() => {
+					// Blog review switches (plan M3, owner 2026-11-06): both OFF by
+					// default; dimmed while the blog tool itself is off.
+					const blogOn = agent?.tools?.blog ?? true;
+					return (
+						<>
+							<SettingsRow
+								label="Blog · share full text"
+								hint="Give the agent the whole article, not just the brief (more tokens)"
+								testid="blog-row-full-text"
+								dimmed={!blogOn}
+							>
+								<Toggle
+									checked={agent?.blog?.autoShareFullText === true}
+									disabled={!blogOn}
+									label="share full article text automatically"
+									onChange={(on) => onSectionChange(composeBlogSetting(agent, "autoShareFullText", on))}
+								/>
+							</SettingsRow>
+							<SettingsRow
+								label="Blog · AI injection check"
+								hint="When a page hides text, an isolated AI judges whether it targets the agent (more tokens)"
+								testid="blog-row-injection-check"
+								dimmed={!blogOn}
+							>
+								<Toggle
+									checked={agent?.blog?.injectionCheck === true}
+									disabled={!blogOn}
+									label="AI injection check"
+									onChange={(on) => onSectionChange(composeBlogSetting(agent, "injectionCheck", on))}
+								/>
+							</SettingsRow>
+						</>
+					);
+				})()}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
 					const searxngOn = agent?.search?.searxng?.enabled === true;

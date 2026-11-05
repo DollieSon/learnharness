@@ -44,6 +44,7 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { blogResultIn, blogTextShared, newBlogTextMessage } from "./contracts/jobs.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -63,7 +64,11 @@ export type ChatInput =
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
 	 *  only with nothing active (mid-problem input rides the dock). */
-	| { type: "next" };
+	| { type: "next" }
+	/** The blog card's one-way "Share full text with the agent" (blog
+	 *  review plan M3, owner 2026-11-06): appends the cleaned article,
+	 *  fenced as untrusted, from the blog job's own steer details. */
+	| { type: "share-blog-text"; jobId: string };
 
 /** A wake-pipeline steer delivery — same turn composition, server-origin.
  *  Wave C (2026-09-26): the idle wake carries EVERY queued marker as its
@@ -197,6 +202,11 @@ export function parseChatInput(input: unknown): ChatInput {
 			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 		case "next":
 			return { type: "next" };
+		case "share-blog-text":
+			if (typeof i.jobId !== "string" || i.jobId.length === 0) {
+				throw new ChatInputError("share-blog-text input requires jobId");
+			}
+			return { type: "share-blog-text", jobId: i.jobId };
 		default:
 			throw new ChatInputError(`unknown input type: ${String(i.type)}`);
 	}
@@ -253,7 +263,22 @@ export function inputAppends(
 			}
 			return [...dismissalConclusion(record), newNextMessage()];
 		}
+		case "share-blog-text":
+			return [...dismissalConclusion(record), blogShareAppend(record.messages, input.jobId)];
 	}
+}
+
+/** The share's validation (honest 400s): the blog must be finished in
+ *  THIS record, not yet shared, and no question may be open — a marker
+ *  between a question call and its answer would break the pairing. */
+export function blogShareAppend(messages: readonly LhMessage[], jobId: string): LhMessage {
+	if (danglingQuestionOf(messages as LhMessage[])) {
+		throw new ChatInputError("Answer the current question before sharing the article text.");
+	}
+	const result = blogResultIn(messages, jobId);
+	if (!result) throw new ChatInputError("share-blog-text targets no finished blog in this session");
+	if (blogTextShared(messages, jobId)) throw new ChatInputError("The article text was already shared.");
+	return newBlogTextMessage(jobId, result);
 }
 
 /** Validate before any turn effects, then again against current saved truth.

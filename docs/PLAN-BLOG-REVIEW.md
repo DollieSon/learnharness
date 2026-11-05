@@ -87,34 +87,47 @@ Files: new `src/server/searxng/` (modelled on `src/server/whisper/`),
 
 ### M3 — The `blog` background job
 Files: `src/core/contracts/jobs.ts`, `src/core/pending.ts`,
-`src/agent/tools/jobs.ts`, new `src/agent/subagents/blog-*.ts`, the job
-runner, artifacts registry + new link card / warning card components,
-settings contracts + UI.
+`src/agent/tools/jobs.ts`, `src/agent/subagents/blog.ts`, the job runner,
+`src/core/input-events.ts`, `components/artifacts/blog-card.tsx`, settings
+contracts + UI.
 
-- [ ] New job kind `blog` (toggleable like `pdf`); teacher tool `blog`
-      with input `{ url }`.
-- [ ] Stage 1 — fetch, clean, scan (M1).
-- [ ] Stage 2 — hidden-content warning: if the scanner found anything, a
-      warning card shows the hidden text. When "AI injection check" is on,
-      an isolated judge (no tools, cheap model; the hidden text fenced as
-      untrusted) adds a verdict to the card.
-- [ ] Stage 3 — reader: an isolated agent with no tools turns the fenced
+Amendments (owner, 2026-11-06, while building M3):
+- **Two jobs, not one.** A job delivers exactly one result message, so the
+  brief and the fact-check are separate jobs: `blog { url }` delivers the
+  brief, and its result message tells the agent to dispatch
+  `fact_check { blog_job }` right away. Both tools are in the prober's and
+  the teacher's registries (a blog link usually opens the lesson).
+- **One "blog" switch.** `Tool · blog` turns off both `blog` and
+  `fact_check`.
+- **Full text is a one-way share.** A model can't "unsee" text, so the per-
+  lesson control is a "Share full text with the agent" button on the link
+  card (a new `share-blog-text` input; refused while a question is open or
+  after it was shared). The global "share full text" setting shares it
+  automatically with the brief.
+- The reader, judge and fact-checker run on the researcher's model.
+
+- [x] Job kinds `blog` and `fact_check` (one `blog` toggle); tools `blog
+      { url }` and `fact_check { blog_job }`. `fact_check` refuses up front
+      unless the id names a finished blog job in the same lesson.
+- [x] Stage 1 — fetch, clean, scan (M1), always rendered.
+- [x] Stage 2 — hidden-content warning: if the scanner found anything, the
+      link card shows the hidden text. When "AI injection check" is on,
+      an isolated judge (no tools; the hidden text fenced as untrusted)
+      adds a verdict to the card.
+- [x] Stage 3 — reader: an isolated agent with no tools turns the fenced
       clean text into a structured brief: title, author, date, thesis,
       outline, claims (each with a short verbatim quote, ranked by
-      centrality), takeaways. Delivered to the teacher FIRST so the recall
-      probe can start.
-- [ ] Stage 4 — fact-checker: an isolated agent with only `web_search` +
-      `web_fetch` checks the top 8 claims → verdict (supported / wrong /
-      misleading / unverifiable) + explanation + sources; also lists
-      omissions and related topics. Delivered to the teacher as a second
-      message.
-- [ ] Link card in the transcript: title, URL, per-stage progress, the
-      "Use full text" toggle. When full text is on (global default or the
-      card toggle), the teacher also receives the clean article fenced as
-      untrusted data.
-- [ ] Settings: "Use full article text" (default off) and "AI injection
-      check" (default off).
-- [ ] Tests with scripted fake engines (no network).
+      centrality), takeaways. Delivered FIRST so the recall probe can start.
+- [x] Stage 4 — fact-checker (`fact_check` job): an isolated agent with
+      only `web_search` + `web_fetch` checks the top 8 claims → verdict
+      (supported / wrong / misleading / unverifiable) + explanation +
+      sources; also lists omissions and related topics.
+- [x] Link card (title, site, byline, warning, brief, share button) and
+      fact-check card (verdicts, sources, omissions, related topics).
+      Page-derived text renders as plain text; only http(s) links are links.
+- [x] Settings `agent.blog`: "share full text" (default off) and "AI
+      injection check" (default off).
+- [x] Tests with scripted fake engines (no network): `tests/blog-review.test.ts`.
 
 ### M4 — The blog lesson flow
 Files: `src/agent/prompt-segments.ts` / teacher prompt, home + new-session

@@ -113,6 +113,11 @@ const jobRunner = createJobRunner({
 	// null = honestly unavailable; the dispatch-level drop (below) uses the
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
+	// Blog review (plan M3): both switches read FRESH per job; absent = off.
+	blogSettings: () => {
+		const blog = stores.settingsStore.readSettings()?.agent?.blog;
+		return { autoShareFullText: blog?.autoShareFullText === true, injectionCheck: blog?.injectionCheck === true };
+	},
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:
  *  quiz-triggered session runs (turn-service) and notes imports

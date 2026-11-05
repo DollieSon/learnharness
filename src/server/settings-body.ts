@@ -29,7 +29,7 @@ import type {
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationEngine, isDictationLanguage, isWhisperModel } from "../core/dictation.ts";
-import { isSearchEngineId, type SearchSettings } from "../core/search.ts";
+import { isSearchEngineId, type BlogSettings, type SearchSettings } from "../core/search.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -205,6 +205,17 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 			next.searxng = { enabled: searxng.enabled };
 		}
 		if (Object.keys(next).length) settings.search = next;
+	}
+	if (raw.blog !== undefined) {
+		const blog = asRecord(raw.blog);
+		if (!blog) return { ok: false, error: "blog must be an object" };
+		const next: BlogSettings = {};
+		for (const key of ["autoShareFullText", "injectionCheck"] as const) {
+			if (blog[key] === undefined) continue;
+			if (typeof blog[key] !== "boolean") return { ok: false, error: `blog.${key} must be a boolean` };
+			next[key] = blog[key];
+		}
+		settings.blog = next;
 	}
 	// Prober graph tools (wave 7, owner ruling 2026-09-23): an agent-section
 	// subsection, not a tool-toggles key — the mechanism is agent capability

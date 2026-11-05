@@ -25,7 +25,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
-import type { SearchSettings } from "./search.ts";
+import type { BlogSettings, SearchSettings } from "./search.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
@@ -85,6 +85,8 @@ export interface EffectiveSettings {
 		 *  passthrough delta — engine resolution (pin → auto → unavailable)
 		 *  lives in server/search.ts, where keys are visible. */
 		search: SearchSettings;
+		/** Blog review settings as stored (absent fields = off). */
+		blog: BlogSettings;
 		/** Prober graph tools (wave 7): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use graphToolsEnabled. */
 		graphTools: { enabled?: boolean };
@@ -198,6 +200,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			tools: agent.tools ?? {},
 			prompts: agent.prompts ?? {},
 			search: agent.search ?? {},
+			blog: agent.blog ?? {},
 			graphTools: agent.graphTools ?? {},
 		},
 		models: {
