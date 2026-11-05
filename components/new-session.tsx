@@ -208,7 +208,7 @@ export function DraftShell({
 								/>
 								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 								{inputError && <p role="alert" data-testid="draft-input-error" className="pointer-events-auto mb-2 text-sm text-destructive">{inputError}</p>}
-								<div className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
+								<div data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
 									<Composer
 										busy={busy}
 										value={text}

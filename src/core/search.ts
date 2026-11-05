@@ -3,9 +3,7 @@
  *
  * Search engines are pluggable behind ONE seam: the settings record names a
  * preferred engine (agent.search.engine — optional), keys live in the auth
- * store (TAVILY_API_KEY / BRAVE_API_KEY — curated catalog), and the server
- * composes the live adapter. The Google CSE engine retired with this wave
- * (closed to new customers; dies Jan 2027) — replaced by Tavily + Brave.
+ * store (the curated key catalog), and the server composes the live adapter.
  *
  * Owner decisions baked here:
  *  - NO default engine in the factory record: an engine is live iff its
@@ -13,13 +11,12 @@
  *    chooses an engine to make search work — setting the key is enough);
  *    agent.search.engine is only an explicit preference.
  *  - Nothing silently falls back: no engine live = search is honestly
- *    unavailable (the tool says so; the researcher sub-agent is disabled
- *    by the agent layer on the same signal — that rewiring is the Teacher
- *    stream's, on this port).
+ *    unavailable (the tool says so). Research remains available keylessly
+ *    through web_fetch for known URLs.
  *
- * Pure types + protocol docs only (browser-safe, no node imports): the
- * adapters are server-side (src/server/search.ts) and arrive as injected
- * dependencies — the agent-layer tool depends on THIS port only.
+ * Pure types, the engine table + protocol docs only (browser-safe, no node
+ * imports): the adapters are server-side (src/server/search.ts) and arrive
+ * as injected dependencies — the agent-layer tool depends on THIS port only.
  */
 
 /** One search result row — the shape every adapter must produce (the
@@ -30,25 +27,42 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** The engine ids (the catalog): SearXNG is the app-managed local engine
- *  (blog review plan M2, owner 2026-11-06); Tavily + Brave are keyed APIs. */
-export type SearchEngineId = "searxng" | "tavily" | "brave";
+/** The KEYED search engines (API key = live), in automatic preference
+ * order. Keep existing preferences stable when adding an engine: an
+ * explicit pin always wins. The app-managed local SearXNG engine (blog
+ * review plan M2, owner 2026-11-06) is not keyed and sits outside this
+ * list; when it is live it leads the automatic order. */
+export const SEARCH_ENGINES = [
+	{ id: "tavily", label: "Tavily", envVar: "TAVILY_API_KEY" },
+	{ id: "brave", label: "Brave", envVar: "BRAVE_API_KEY" },
+	{ id: "exa", label: "Exa", envVar: "EXA_API_KEY" },
+	{ id: "firecrawl", label: "Firecrawl", envVar: "FIRECRAWL_API_KEY" },
+	{ id: "ollama", label: "Ollama", envVar: "OLLAMA_API_KEY" },
+] as const;
 
-export const SEARCH_ENGINE_IDS: readonly SearchEngineId[] = ["searxng", "tavily", "brave"];
+/** A keyed engine's id. */
+export type KeyedSearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
 
+/** Every engine id: the local SearXNG engine plus the keyed catalog. */
+export type SearchEngineId = "searxng" | KeyedSearchEngineId;
+
+/** Every engine id, SearXNG first (the automatic order). */
+export const SEARCH_ENGINE_IDS: readonly SearchEngineId[] = ["searxng", ...SEARCH_ENGINES.map((engine) => engine.id)];
+
+/** The read/write guards' membership check (settings record + PUT body). */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {
-	return value === "searxng" || value === "tavily" || value === "brave";
+	return value === "searxng" || SEARCH_ENGINES.some((engine) => engine.id === value);
 }
 
-/** The settings record's search section (agent.search). `engine` is an
- *  optional explicit pin; `searxng.enabled` turns the app-managed local
- *  engine on (absent = off, owner 2026-11-06). */
 /** Blog review settings (blog review plan M3): both default OFF. */
 export interface BlogSettings {
 	autoShareFullText?: boolean;
 	injectionCheck?: boolean;
 }
 
+/** The settings record's search section (agent.search). `engine` is an
+ *  optional explicit pin; `searxng.enabled` turns the app-managed local
+ *  engine on (absent = off, owner 2026-11-06). */
 export interface SearchSettings {
 	engine?: SearchEngineId;
 	searxng?: { enabled: boolean };

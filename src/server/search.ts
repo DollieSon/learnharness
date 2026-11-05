@@ -1,6 +1,6 @@
 /**
  * The search engines' server composition (search port + model slots wave,
- * 2026-09-20): the Tavily + Brave adapters behind the core port
+ * 2026-09-20): search adapters behind the core port
  * (core/search.ts) + the live-engine resolution the settings UI and the
  * agent-layer tool both read.
  *
@@ -8,18 +8,28 @@
  *  - NO default engine: an engine is live iff its key is present (auth
  *    store or env — env wins, keyed via server/keys.ts keyValue).
  *  - Setting a key is ALL the user does — auto-detection: explicit
- *    agent.search.engine pins the preference (when BOTH keys are present
- *    the preference order is Tavily → Brave); without a pin, whichever
- *    engine has a key is the engine.
- *  - An explicit choice does NOT silently fall back to the other engine:
+ *    agent.search.engine pins the preference (when several keys are
+ *    present the order is Tavily → Brave → Exa → Firecrawl → Ollama);
+ *    without a pin, the first keyed engine wins.
+ *  - An explicit choice does NOT silently fall back to another engine:
  *    engine pinned but its key missing = honestly unavailable (reason
  *    says so) — no guessing what the user meant.
+ *  - The app-managed local SearXNG engine (blog review plan M2, owner
+ *    2026-11-06) needs no key: when it is enabled and running it leads the
+ *    automatic order; pinned, it must be running.
  *
  * The adapters are injected dependencies (fetch-shaped) so the agent-layer
  * tool depends on the PORT only and tests never touch the network.
  */
 
-import type { SearchEngineId, SearchHit, SearchProvider, SearchStatus } from "../core/search.ts";
+import {
+	SEARCH_ENGINES,
+	type KeyedSearchEngineId,
+	type SearchEngineId,
+	type SearchHit,
+	type SearchProvider,
+	type SearchStatus,
+} from "../core/search.ts";
 import { keyValue } from "./keys.ts";
 import { effectiveSettings } from "./stores.ts";
 import { searxngBaseUrl, searxngLive, searxngProcessView } from "./searxng/process.ts";
@@ -109,6 +119,109 @@ export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): Searc
 	};
 }
 
+/** Invalid JSON must not echo provider response bodies into tool results. */
+async function searchJson(response: Response, label: string): Promise<unknown> {
+	try {
+		return await response.json();
+	} catch {
+		throw new Error(`${label} search API returned an invalid response`);
+	}
+}
+
+/** Exa's Search API returns highlights when requested. Its result snippets
+ * are normalized to the same bounded, provider-neutral shape as the other
+ * adapters. Do not expose error bodies, which may contain credentials. */
+export function exaProvider(apiKey: string, fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "exa",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const resp = await fetchFn("https://api.exa.ai/search", {
+				method: "POST",
+				headers: { "content-type": "application/json", "x-api-key": apiKey },
+				body: JSON.stringify({ query, type: "auto", numResults: Math.min(100, Math.max(1, Math.floor(count))), contents: { highlights: true } }),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!resp.ok) throw new Error(`Exa search API ${resp.status}`);
+			const data = await searchJson(resp, "Exa");
+			if (!data || typeof data !== "object" || !Array.isArray((data as { results?: unknown }).results)) {
+				throw new Error("Exa search API returned an invalid response");
+			}
+			return (data as { results: unknown[] }).results.flatMap((result): SearchHit[] => {
+				if (!result || typeof result !== "object") return [];
+				const row = result as { title?: unknown; url?: unknown; highlights?: unknown; text?: unknown };
+				if (typeof row.url !== "string" || !row.url.trim()) return [];
+				try {
+					const protocol = new URL(row.url).protocol;
+					if (protocol !== "http:" && protocol !== "https:") return [];
+				} catch { return []; }
+				const highlights = Array.isArray(row.highlights) ? row.highlights.filter((v): v is string => typeof v === "string").join(" ") : "";
+				const snippet = highlights || (typeof row.text === "string" ? row.text : "");
+				return [{ title: typeof row.title === "string" && row.title ? row.title : row.url, url: row.url, snippet: snippet.replace(/\s+/g, " ").trim().slice(0, 500) }];
+			});
+		},
+	};
+}
+
+/** Firecrawl's v2 search API: no scrapeOptions, so web_fetch still owns
+ *  page bodies. Wire shape checked against the official 2026-11-03 snapshot;
+ *  live account access and pricing are not inferred from configuration. */
+export function firecrawlProvider(apiKey: string, fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "firecrawl",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const resp = await fetchFn("https://api.firecrawl.dev/v2/search", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({ query, limit: Math.min(100, Math.max(1, Math.floor(count))) }),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!resp.ok) throw new Error(`Firecrawl search API ${resp.status}`);
+			const data = await searchJson(resp, "Firecrawl");
+			if (!data || typeof data !== "object" || (data as { success?: unknown }).success !== true) {
+				throw new Error("Firecrawl search API returned an invalid response");
+			}
+			const payload = (data as { data?: unknown }).data;
+			if (!payload || typeof payload !== "object" || !Array.isArray((payload as { web?: unknown }).web)) {
+				throw new Error("Firecrawl search API returned an invalid response");
+			}
+			return (payload as { web: unknown[] }).web.flatMap((result): SearchHit[] => {
+				if (!result || typeof result !== "object") return [];
+				const row = result as { title?: unknown; url?: unknown; description?: unknown };
+				return searchHit(row.title, row.url, row.description);
+			});
+		},
+	};
+}
+
+/** Hosted search only, adapted from chiranjivsethi's PR #81 (a216fa8).
+ *  No local model URL, model registration, or provider-backed page fetch. */
+export function ollamaProvider(apiKey: string, fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "ollama",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const resp = await fetchFn("https://ollama.com/api/web_search", {
+				method: "POST",
+				headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+				body: JSON.stringify({ query, max_results: Math.min(10, Math.max(1, Math.floor(count))) }),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!resp.ok) throw new Error(`Ollama search API ${resp.status}`);
+			const data = await searchJson(resp, "Ollama");
+			if (!data || typeof data !== "object" || !Array.isArray((data as { results?: unknown }).results)) {
+				throw new Error("Ollama search API returned an invalid response");
+			}
+			return (data as { results: unknown[] }).results.flatMap((result): SearchHit[] => {
+				if (!result || typeof result !== "object") return [];
+				const row = result as { title?: unknown; url?: unknown; content?: unknown };
+				return searchHit(row.title, row.url, row.content);
+			});
+		},
+	};
+}
+
 /** SearXNG (blog review plan M2, owner 2026-11-06): the app-managed local
  *  engine — GET {base}/search?q=…&format=json (JSON output is switched on
  *  by the settings.yml this app writes). Response {results: [{title, url,
@@ -150,21 +263,36 @@ export function searxngProvider(baseUrl: () => Promise<string>, fetchFn: FetchLi
 	};
 }
 
-/** The KEYED engines, in PREFERENCE order (both keys present, no explicit
- *  pin → the first keyed engine wins; owner decision 2026-09-20: Tavily
- *  first — the AI-native search API the wave chose). SearXNG, when live,
- *  leads the auto order ahead of these (owner, 2026-11-06). */
-const ENGINE_ORDER: ReadonlyArray<{ id: Exclude<SearchEngineId, "searxng">; envVar: string }> = [
-	{ id: "tavily", envVar: "TAVILY_API_KEY" },
-	{ id: "brave", envVar: "BRAVE_API_KEY" },
-];
+/** Match Exa's bounded result contract for the other new adapters. */
+function searchHit(title: unknown, url: unknown, snippet: unknown): SearchHit[] {
+	if (typeof url !== "string" || !url.trim()) return [];
+	try {
+		const protocol = new URL(url).protocol;
+		if (protocol !== "http:" && protocol !== "https:") return [];
+	} catch { return []; }
+	return [{
+		title: typeof title === "string" && title ? title : url,
+		url,
+		snippet: typeof snippet === "string" ? snippet.replace(/\s+/g, " ").trim().slice(0, 500) : "",
+	}];
+}
 
 /** The engine's key (env-or-file; env wins) — null when the engine is
  *  not keyed, which by owner decision means NOT LIVE. */
-function engineKey(id: Exclude<SearchEngineId, "searxng">): string | null {
-	const envVar = ENGINE_ORDER.find((e) => e.id === id)?.envVar;
+function engineKey(id: KeyedSearchEngineId): string | null {
+	const envVar = SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
 	const value = envVar ? keyValue(envVar) : undefined;
 	return value ? value : null;
+}
+
+/** Every engine's live key, read fresh (the resolver's input). */
+function engineKeys(): Partial<Record<KeyedSearchEngineId, string>> {
+	const keys: Partial<Record<KeyedSearchEngineId, string>> = {};
+	for (const { id } of SEARCH_ENGINES) {
+		const key = engineKey(id);
+		if (key) keys[id] = key;
+	}
+	return keys;
 }
 
 /** SearXNG's state for resolution: the settings switch, whether it is up
@@ -182,7 +310,7 @@ export interface SearxngResolutionState {
 export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
 	/** Per-engine live keys (absent engine = absent property is fine). */
-	keys: Partial<Record<SearchEngineId, string | undefined>>,
+	keys: Partial<Record<KeyedSearchEngineId, string | undefined>>,
 	searxng: SearxngResolutionState = { enabled: false, live: false },
 ): SearchStatus & { key: string | null } {
 	const searxngDown = searxng.enabled && !searxng.live
@@ -203,14 +331,14 @@ export function resolveSearchEngineFor(
 			return {
 				available: false,
 				engine: null,
-				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${pinned === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY"} key`,
+				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${SEARCH_ENGINES.find((e) => e.id === pinned)?.envVar} key`,
 				key: null,
 			};
 		}
 		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
 	}
 	if (searxng.live) return { available: true, engine: "searxng", reason: "search engine: searxng (auto)", key: null };
-	for (const { id } of ENGINE_ORDER) {
+	for (const { id } of SEARCH_ENGINES) {
 		const key = keys[id] ?? null;
 		if (key) {
 			return {
@@ -224,21 +352,19 @@ export function resolveSearchEngineFor(
 	return {
 		available: false,
 		engine: null,
-		reason: searxngDown ?? "no search engine configured — enable local SearXNG or set a Tavily or Brave search API key",
+		reason: searxngDown ?? "no search engine configured — enable local SearXNG or set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key",
 		key: null,
 	};
 }
 
+/** The live resolution: settings pin + SearXNG state + keys, read fresh. */
 function liveResolution(): SearchStatus & { key: string | null } {
-	const enabled = effectiveSettings().agent.search?.searxng?.enabled === true;
-	return resolveSearchEngineFor(
-		effectiveSettings().agent.search?.engine,
-		{
-			tavily: engineKey("tavily") ?? undefined,
-			brave: engineKey("brave") ?? undefined,
-		},
-		{ enabled, live: searxngLive(), error: searxngProcessView().error },
-	);
+	const search = effectiveSettings().agent.search;
+	return resolveSearchEngineFor(search?.engine, engineKeys(), {
+		enabled: search?.searxng?.enabled === true,
+		live: searxngLive(),
+		error: searxngProcessView().error,
+	});
 }
 
 /** The live search state (the honest availability signal): reads the
@@ -249,8 +375,7 @@ export function searchStatus(): SearchStatus {
 	return { available, engine, reason };
 }
 
-/** Search available at all? (the settings UI's gray-out signal + the
- *  researcher's enable/disable pin — Teacher stream's rewiring reads this.) */
+/** Search status only — research itself remains available without a key. */
 export function searchAvailable(): boolean {
 	return searchStatus().available;
 }
@@ -263,5 +388,18 @@ export function searchProvider(): SearchProvider | null {
 	if (!resolved.available) return null;
 	if (resolved.engine === "searxng") return searxngProvider(() => searxngBaseUrl());
 	if (!resolved.key) return null;
-	return resolved.engine === "tavily" ? tavilyProvider(resolved.key) : braveProvider(resolved.key);
+	switch (resolved.engine) {
+		case "tavily":
+			return tavilyProvider(resolved.key);
+		case "brave":
+			return braveProvider(resolved.key);
+		case "exa":
+			return exaProvider(resolved.key);
+		case "firecrawl":
+			return firecrawlProvider(resolved.key);
+		case "ollama":
+			return ollamaProvider(resolved.key);
+		default:
+			return null;
+	}
 }

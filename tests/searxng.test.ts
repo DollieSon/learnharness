@@ -97,7 +97,7 @@ describe("resolveSearchEngineFor with SearXNG", () => {
 		assert.match(up.reason, /chosen/);
 	});
 	it("nothing configured mentions SearXNG as an option", () => {
-		assert.match(resolveSearchEngineFor(undefined, {}).reason, /enable local SearXNG or set a Tavily or Brave/);
+		assert.match(resolveSearchEngineFor(undefined, {}).reason, /enable local SearXNG or set a Tavily, Brave, Exa, Firecrawl, or Ollama/);
 	});
 });
 
