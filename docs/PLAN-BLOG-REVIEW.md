@@ -174,8 +174,8 @@ Decided (owner, 2026-11-06, before the autonomous run):
       pipeline as the URL's source. The fact-check card says when it saved.
 
 ### M6 — Tests, docs and delivery
-- [ ] Full test suite green (excluding known environment-only failures).
-- [ ] `docs/architecture.md` updated; this plan's checkboxes ticked.
+- [x] Full test suite green (excluding known environment-only failures).
+- [x] `docs/architecture.md` updated; this plan's checkboxes ticked.
 - [ ] Live end-to-end test: local SearXNG (installed through the app) and
       one real blog in a blog session; the test session is deleted after.
 - [ ] One PR from `feat/blog-review` (it carries the local-whisper commits)

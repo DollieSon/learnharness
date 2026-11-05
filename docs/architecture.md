@@ -84,8 +84,8 @@ The teaching agents share one record but have different prompts and registries (
 
 | Agent | Main interaction | Other capabilities |
 |---|---|---|
-| Prober | `probe` (multiple choice) or `recall` (free recall), `ask_user_question`, `probe_done` | Read-only file tools, research/PDF dispatch; graph readers when enabled |
-| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only file tools and research/PDF/demo/visual dispatch |
+| Prober | `probe` (multiple choice) or `recall` (free recall), `ask_user_question`, `probe_done` | Read-only file tools, research/PDF/blog/fact-check dispatch; graph readers when enabled |
+| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only file tools and research/PDF/blog/fact-check/demo/visual dispatch |
 | Practitioner | `problem`, `conclude` | Read-only file tools, research/PDF dispatch; graph readers when enabled |
 
 The choice/free-recall mechanic selects one graded tool per teaching phase. Tool toggles and availability gates affect the registry; the table is not a promise that every dispatch tool is always enabled. Practice side tools are composed separately, without the teaching toggle filter. Claude-family agents can also receive `send_to_user` for explicit learner-facing output. All ordinary registries pass through argument healing; semantic validation failures return error results so the model can correct the call.
@@ -95,6 +95,8 @@ The choice/free-recall mechanic selects one graded tool per teaching phase. Tool
 Pending calls are record-derived, so reopening an unanswered question needs no new model call. If a model emitted sibling questions, answering one persists its result without starting inference while another remains pending; the last answer starts the reaction turn.
 
 **Probe → plan → teach:** a matching successful `probe_done` result, not a bare call or refusal, selects the teacher on subsequent turns. The tool queues a handoff wake, which must build a fresh teacher rather than steer into the prober. If the wake cannot be delivered, the next learner turn still selects the teacher from the saved seam. Phase display (`src/core/phases.ts`) advances from probe to plan at that successful result, and to teach at the first `nodeId`-tagged `quiz`/`explain` call—not at `plan_init` or an acceptance marker.
+
+**Blog reviews:** a `kind: "blog"` session runs the same prober → teacher arc with extra blog-only prompt fragments (`src/agent/prompts/blog-prober/`, `blog-teacher/`): read the linked article, recall first, then teach the fact-check. See [blog reviews](blog-review.md).
 
 **Plan:** `plan_init` parses a restricted Mermaid graph and validates its DAG structure. It writes/replaces the whole plan; it is intentionally re-callable, not mechanically author-once. Question node IDs validate against the current tree. Current/visited/upcoming statuses derive from tagged calls, not grades or explicit “done” writes. Presenting the plan and waiting for a natural learner reply is prompt doctrine, not a separate acceptance transaction.
 
@@ -113,7 +115,7 @@ Practice outcomes are evidence in the session, not graph mastery levels, certifi
 
 ## 5. Background work and delivery
 
-Researcher, PDF reader, demo builder and visual maker run independently (`src/agent/subagents/runner.ts`). Dispatch tools persist a job and its input, return an acknowledgement, then spawn the worker. Demos are executed through the browser helper before delivery; visual verification uses rendered images. PDF/SVG rendering and shared image postprocessing are native; demos use the app's Electron browser service with system Chrome as fallback, not an extra downloaded Chromium.
+Researcher, PDF reader, blog reader, fact-checker, demo builder and visual maker run independently (`src/agent/subagents/runner.ts`; the blog pair is described in [blog reviews](blog-review.md)). Dispatch tools persist a job and its input, return an acknowledgement, then spawn the worker. Demos are executed through the browser helper before delivery; visual verification uses rendered images. PDF/SVG rendering and shared image postprocessing are native; demos use the app's Electron browser service with system Chrome as fallback, not an extra downloaded Chromium.
 
 **Worker completion is not session delivery.** The runner saves a terminal worker outcome plus pending delivery metadata before queueing the result. Worker resources and the running activity row can end while an unanswered question holds its result. Only computing workers are abortable; abort notices have their own pending-delivery lifecycle.
 
@@ -159,6 +161,8 @@ The extractor alone reads source material and submits propositions plus jointly-
 `POST /api/graph/import` accepts text and PDF notes and uses the same extractor/auditor/merger, with notes-specific prompts and no message-anchor requirement. Source identity remains a hash of the supplied file path/name. The optional multipart `paths` entries preserve safe folder-relative paths, matched to each uploaded filename; without them the route uses `File.name`. Changing the picked path changes source identity; changing a display name or organizational placement does not. Identical names do not become different sources just because their upload positions differ.
 
 The shared Files/Folder picker sends one request per supported file through one appendable page-memory queue, with **three files in flight** and immediate refill when any finishes. Further selections join that queue without disabling import. Files over **25 MiB** fail individually; a selection may exceed that total because requests are separate. The server still checks actual aggregate file bytes per request at 25 MiB and bounds the multipart body/proxy at **26 MiB**. PDF conversion, scanner notices and extraction stages are unchanged. The file queue is not persisted across a page reload and introduces no model-concurrency setting.
+
+A successful blog fact-check also imports through `extraction.importNotes`: a write-up built from the verdicts (never the raw article) under the path `Blog reviews/<site> › <path>.md`, so one article URL is one source ([blog reviews](blog-review.md#saving-to-the-graph)).
 
 **Every explicit import processes the whole file, even unchanged text.** There is no content-fingerprint skip or exactly-once import promise. Notes split greedily at line boundaries; a retry reprocesses the file using its existing source digest and identity auditing. Prior merges and usage remain. Same-source overlap is refused as busy before source metadata changes.
 
@@ -232,7 +236,7 @@ Ordinary API credentials are read through the key seam, with real environment va
 - [Compaction, context and accounting](compaction-accounting.md)
 - [Development credential and shared-server boundaries](development.md#subscription-connections-in-webdev)
 
-File tools are read-only, but not confined to `data/` or a selected project: relative/default paths resolve against the server user's home. Walk exclusions reduce noise, not access authority. Existing-file attachments carry paths for the agent to read; they are not a new file-upload sandbox. Read/PDF/visual image results share image postprocessing; tool content retained outside the model-facing result follows [tool content recovery](tool-content-recovery.md). Search uses configured Tavily/Brave adapters; research can still use direct web fetching without a search key. Dictation has two engines. Deepgram mints short-lived tokens server-side, then streams audio browser → Deepgram, not through the app server. Local Whisper (Windows) records in the browser and POSTs one WAV per run to the app server, which forwards it to a managed loopback whisper.cpp process; see [local Whisper dictation](dictation-whisper.md). The language preference is shared app settings.
+File tools are read-only, but not confined to `data/` or a selected project: relative/default paths resolve against the server user's home. Walk exclusions reduce noise, not access authority. Existing-file attachments carry paths for the agent to read; they are not a new file-upload sandbox. Read/PDF/visual image results share image postprocessing; tool content retained outside the model-facing result follows [tool content recovery](tool-content-recovery.md). Search uses the app-managed local SearXNG container ([local search](searxng.md)) or the configured Tavily/Brave adapters; an explicit pin never switches silently. Pages are read locally (`readPage` in `src/agent/tools/web.ts`): a URL guard refuses non-public addresses on every redirect and browser sub-request, and a hidden-content scanner strips text a human reader can't see before any agent reads it. Research can still fetch pages without a search engine. Dictation has two engines. Deepgram mints short-lived tokens server-side, then streams audio browser → Deepgram, not through the app server. Local Whisper (Windows) records in the browser and POSTs one WAV per run to the app server, which forwards it to a managed loopback whisper.cpp process; see [local Whisper dictation](dictation-whisper.md). The language preference is shared app settings.
 
 ## 10. Verification seams
 
