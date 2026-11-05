@@ -178,7 +178,7 @@ Decided (owner, 2026-11-06, before the autonomous run):
 - [x] `docs/architecture.md` updated; this plan's checkboxes ticked.
 - [x] Live end-to-end test: local SearXNG (installed through the app) and
       one real blog in a blog session; the test session is deleted after.
-- [ ] One PR from `feat/blog-review` (it carries the local-whisper commits)
+- [x] One PR from `feat/blog-review` (it carries the local-whisper commits): DollieSon/learnharness#1
       into the fork's `main` (DollieSon/learnharness), conflicts resolved.
 
 ## Safety rules (apply to every milestone)
