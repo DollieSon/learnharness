@@ -904,7 +904,9 @@ function QuestionDockForm({
 							}}
 							placeholder="Why this answer? Whatever comes to mind."
 							className={cn(
-								"field-sizing-content lh-input max-h-48 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70",
+								// Growth cap (owner, 2026-11-06): a quarter of the window,
+								// then it scrolls — long dumps never eat the screen.
+								"field-sizing-content lh-input max-h-[25vh] w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70",
 								// Phase-scaled prominence: teaching invites depth,
 								// probing stays quick.
 								phase === "teach" ? "min-h-[4.5rem]" : "min-h-10",

@@ -146,7 +146,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					}}
 					placeholder="Work here, think out loud."
 					className={cn(
-						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
+						"field-sizing-content lh-input max-h-[25vh] min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
 				/>
 				{/* The submit row (owner round 4, 2026-10-05): IDENTICAL to the

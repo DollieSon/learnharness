@@ -17,7 +17,8 @@ describe("the reading-thinking field (owner round, 2026-10-07)", () => {
 		// max-h). py-0.5 absorbs it — the composer/dock fields get the same
 		// absorption implicitly from py-2. Line-height stays 1.25 (caret law).
 		assert.ok(html.includes("py-0.5"), "the vertical padding is on the textarea");
-		// The cap survives: growth past max-h-40 still scrolls honestly.
-		assert.ok(html.includes("max-h-40"), "the 160px growth cap stays");
+		// The cap survives: growth past a quarter of the window scrolls
+		// (owner, 2026-11-06 — was a fixed 160px).
+		assert.ok(html.includes("max-h-[25vh]"), "the 25vh growth cap stays");
 	});
 });

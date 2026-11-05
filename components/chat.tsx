@@ -91,20 +91,24 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 /**
  * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
  * full session width with a thin px-6 margin; the composer/question DOCK is
- * deliberately narrower (~46rem centered) per the reference. Same ELEMENT,
- * same place — width polish only.
+ * centered at 80% of the band — 10% margin each side (owner, 2026-11-06:
+ * the old 46rem cap left long thinking dumps narrow and tall). Same
+ * ELEMENT, same place — width polish only.
  */
 const COLUMN = "mx-auto w-full max-w-none px-6";
-const DOCK = "mx-auto w-full max-w-[46rem] px-4";
-// The DOCK container's fixed width (46rem) and the plan marginalia's
-// geometry (owner, plan-placement round): the bare diagram sits in the
-// dock band's RIGHT flank — MARGIN_GAP from the DOCK container's edge and
-// the same from the column's right edge. The box width is pure CSS, so
-// the diagram shrinks CONTINUOUSLY with the flank; MARGIN_MIN_W is only
-// the fade floor (owner, resize round) — below it the marginalia fades
-// out over the normal transition instead of popping away, and it stays
-// mounted while the question owns the band so widening fades it back.
-const DOCK_W = 46 * 16;
+const DOCK = "mx-auto w-full max-w-[80%] px-4";
+// The DOCK container's width as a fraction of the band, and the plan
+// marginalia's geometry (owner, plan-placement round): the bare diagram
+// sits in the dock band's RIGHT flank — MARGIN_GAP from the DOCK
+// container's edge and the same from the column's right edge. The box
+// width is pure CSS, so the diagram shrinks CONTINUOUSLY with the flank;
+// MARGIN_MIN_W is only the fade floor (owner, resize round) — below it the
+// marginalia fades out over the normal transition instead of popping away,
+// and it stays mounted while the question owns the band so widening fades
+// it back. With the 80% dock the flank is ~10% of the band, so the
+// marginalia is hidden on most screens (owner, 2026-11-06: accepted — the
+// top-bar plan chip still opens the plan).
+const DOCK_FRACTION = 0.8;
 const MARGIN_GAP = 16;
 const MARGIN_MIN_W = 220;
 // The dock overlay's gradient band (h-24) — part of the reserved tail.
@@ -2114,7 +2118,7 @@ function DockOverlay({
 		const block = blockRef.current;
 		if (!block) return;
 		const measure = () => {
-			const next = Math.round(block.offsetWidth / 2 - DOCK_W / 2 - 2 * MARGIN_GAP);
+			const next = Math.round((block.offsetWidth * (1 - DOCK_FRACTION)) / 2 - 2 * MARGIN_GAP);
 			if (Math.abs(next - flankWRef.current) > 1) {
 				flankWRef.current = next;
 				setFlankW(next);
@@ -2469,7 +2473,7 @@ function DockOverlay({
 						type="button"
 						data-testid="plan-marginalia"
 						onClick={onOpenPlan}
-						style={{ left: `calc(50% + ${DOCK_W / 2 + MARGIN_GAP}px)` }}
+						style={{ left: `calc(${50 + DOCK_FRACTION * 50}% + ${MARGIN_GAP}px)` }}
 						className={`absolute bottom-5 right-4 top-0 cursor-pointer transition-[filter,opacity] duration-300 ease-out ${
 							expanded && flankW >= MARGIN_MIN_W
 								? "pointer-events-auto opacity-100 blur-0"
