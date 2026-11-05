@@ -56,6 +56,27 @@ export interface RenderedPdfPage {
 	png: Buffer;
 }
 
+export interface RenderUrlOptions {
+	/** A PLAIN-STRING script evaluated in the page once it settles; its
+	 *  (JSON-serializable) value is returned as `result`. */
+	evaluate: string;
+	/** Every request the page makes — the main navigation and redirects
+	 *  included — must pass this check; false aborts the request. */
+	allowRequest: (url: string) => Promise<boolean>;
+	/** Navigation timeout — default 30s. */
+	timeoutMs?: number;
+}
+
+export interface RenderUrlResult {
+	/** The page's URL after redirects. */
+	finalUrl: string;
+	/** HTTP status of the main document, when known. */
+	status: number | null;
+	result: unknown;
+	/** How many sub-requests `allowRequest` refused. */
+	blockedRequests: number;
+}
+
 export interface HeadlessApi {
 	/** True when a browser helper or Chrome is resolvable (cheap, no launch). */
 	available(): boolean;
@@ -67,6 +88,10 @@ export interface HeadlessApi {
 	renderSvg(svg: string, opts?: RenderSvgOptions): Promise<Buffer>;
 	/** Render PDF pages to PNGs natively (pdfjs + Skia) for the pdf-reader. */
 	renderPdfPages(pdfPath: string, pages: number[], opts?: RenderPdfOptions): Promise<RenderedPdfPage[]>;
+	/** Load a remote web page in the local sandboxed browser and evaluate a
+	 *  script in it (blog review plan, M1). Optional: an API without it has
+	 *  no page renderer (callers fall back to the fast path). */
+	renderUrl?(url: string, opts: RenderUrlOptions): Promise<RenderUrlResult>;
 }
 
 /** Test seam — undefined in production. */
@@ -571,6 +596,80 @@ async function renderPdfPages(
 	}
 }
 
+// ─── Remote page rendering (blog review plan, M1) ───────────────────────────
+
+/** Runs before any page script on every navigation of this render: a page
+ *  must not open windows (Electron would show them on the learner's screen)
+ *  or block on dialogs. Removed again after the render — the helper page is
+ *  shared with demos. */
+const PAGE_LOCKDOWN_SCRIPT = "window.open = () => null; window.alert = () => {}; window.confirm = () => false; window.prompt = () => null; window.print = () => {};";
+
+async function renderUrl(url: string, opts: RenderUrlOptions): Promise<RenderUrlResult> {
+	return withBrowserPage(async (page) => {
+		let blockedRequests = 0;
+		const origins = new Set<string>();
+		const onRequest = (req: import("puppeteer-core").HTTPRequest) => {
+			if (req.isInterceptResolutionHandled()) return;
+			const target = req.url();
+			if (/^(data|blob|about):/i.test(target)) {
+				void req.continue().catch(() => {});
+				return;
+			}
+			void opts
+				.allowRequest(target)
+				.catch(() => false)
+				.then((ok) => {
+					if (ok) {
+						try {
+							origins.add(new URL(target).origin);
+						} catch {
+							/* unparseable — the check already passed it */
+						}
+						return req.continue();
+					}
+					blockedRequests++;
+					return req.abort("blockedbyclient");
+				})
+				.catch(() => {});
+		};
+		const onDialog = (dialog: import("puppeteer-core").Dialog) => {
+			void dialog.dismiss().catch(() => {});
+		};
+		let lockdownId: string | null = null;
+		// Interception must be live before navigation; failing to enable it
+		// fails the render (never load an unfiltered page).
+		await page.setRequestInterception(true);
+		page.on("request", onRequest);
+		page.on("dialog", onDialog);
+		try {
+			lockdownId = (await page.evaluateOnNewDocument(PAGE_LOCKDOWN_SCRIPT)).identifier;
+			await page.setViewport({ width: 1280, height: 900 });
+			const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: opts.timeoutMs ?? 30_000 });
+			// Give client-rendered pages a moment; a page that never goes
+			// quiet (analytics beacons, sockets) is read as it stands.
+			await page.waitForNetworkIdle({ idleTime: 500, timeout: 8_000 }).catch(() => {});
+			const result = await page.evaluate(opts.evaluate);
+			return { finalUrl: page.url(), status: response?.status() ?? null, result, blockedRequests };
+		} finally {
+			page.off("request", onRequest);
+			page.off("dialog", onDialog);
+			if (lockdownId) await page.removeScriptToEvaluateOnNewDocument(lockdownId).catch(() => {});
+			await page.setRequestInterception(false).catch(() => {});
+			// Leave no trace of the site in the shared helper profile.
+			try {
+				const cdp = await page.createCDPSession();
+				await cdp.send("Network.clearBrowserCookies").catch(() => {});
+				for (const origin of origins) {
+					await cdp.send("Storage.clearDataForOrigin", { origin, storageTypes: "all" }).catch(() => {});
+				}
+				await cdp.detach().catch(() => {});
+			} catch {
+				/* best-effort cleanup */
+			}
+		}
+	});
+}
+
 // ─── the real API ────────────────────────────────────────────────────────────
 
 export const realHeadless: HeadlessApi = {
@@ -585,4 +684,5 @@ export const realHeadless: HeadlessApi = {
 	runDemo,
 	renderSvg,
 	renderPdfPages,
+	renderUrl,
 };

@@ -22,7 +22,7 @@ Status: **approved by the owner 2026-11-06.** Branch `feat/blog-review`
 | Saving | **Auto-save** every reviewed blog as a source, built from the **fact-checked write-up** (never the raw blog text), so false claims enter the graph only as flagged errors. |
 | Search engine | **SearXNG, managed by the app** through Docker (like the local Whisper server). |
 | Engine order | **SearXNG first** when enabled and healthy, then Tavily, then Brave. An explicit engine pin still wins; nothing ever silently switches engines. |
-| Page rendering | **Plain download + Readability first**; only when that yields no article, render in the **local sandboxed Chromium** (the app's Electron browser-service, system Chrome fallback). **The Jina Reader fallback is removed.** |
+| Page rendering | **Plain download + Readability first**; only when that yields no article, render in the **local sandboxed Chromium** (the app's Electron browser-service, system Chrome fallback). **The Jina Reader fallback is removed.** **Amended during M1: blog lessons ALWAYS render** (only the rendered page's computed styles reveal text hidden by external CSS); research fetches stay fast-first. No browser available → blogs use the fast path with a "reduced hidden-text detection" note. |
 | What the teacher sees | **Default: the reader's brief + short verbatim quotes** (never the full page). Optional **full article text, fenced as untrusted data** — a global Settings default (off) **plus** a per-lesson "Use full text" toggle on the blog's link card. |
 | Hidden-text detection | A **rule-based scanner** (no AI, no tokens) **always runs**: it strips hidden content before any agent sees the page and shows the learner a warning card with the hidden text. An **isolated AI injection judge** (no tools, cheap model) adds a verdict to the card — **only when the global "AI injection check" setting is on; off by default** (saves tokens). No per-lesson toggle for the judge. |
 
@@ -37,14 +37,14 @@ Status: **approved by the owner 2026-11-06.** Branch `feat/blog-review`
 Files: `src/agent/tools/web.ts`, `src/agent/subagents/headless.ts`, new
 `src/agent/tools/url-guard.ts`, new `src/agent/tools/hidden-content.ts`.
 
-- [ ] Delete `fetchViaJina`. When Readability yields no article, render the
+- [x] Delete `fetchViaJina`. When Readability yields no article, render the
       page through the existing browser helper (`withBrowserPage`), take the
       rendered DOM, and run Readability on it.
-- [ ] URL guard: http(s) only; resolve the host and refuse loopback,
+- [x] URL guard: http(s) only; resolve the host and refuse loopback,
       private (RFC 1918 / ULA), link-local, CGNAT, unspecified and cloud
       metadata addresses; re-check every redirect hop (manual redirect
       following, capped).
-- [ ] Hidden-content scanner (pure, no AI): on the static HTML (linkedom)
+- [x] Hidden-content scanner (pure, no AI): on the static HTML (linkedom)
       it finds HTML comments, `hidden` / `aria-hidden="true"` elements,
       inline-style `display:none` / `visibility:hidden` / `opacity:0` /
       `font-size:0–1px` / off-screen positioning / clip-to-zero,
@@ -52,7 +52,14 @@ Files: `src/agent/tools/web.ts`, `src/agent/subagents/headless.ts`, new
       On the rendered path it additionally uses computed styles (including
       text colour equal to background). Returns `{ cleanHtml, findings[] }`
       where each finding is `{ kind, text }` (text trimmed + capped).
-- [ ] Tests for the guard, the scanner and the render fallback (headless
+- [x] Rendered pages: block every browser sub-request to non-public
+      addresses or non-http(s) schemes (request interception — the page's
+      own scripts must not reach the app's local API or the home network);
+      clear the helper's cookies after each render.
+- [x] A `readPage(url, { render })` entry point returning title, markdown,
+      final URL, findings and whether it rendered — `web_fetch` uses it
+      fast-first; the blog job (M3) uses `render: "always"`.
+- [x] Tests for the guard, the scanner and the render fallback (headless
       override seam, no real browser or network).
 
 ### M2 — SearXNG managed by the app

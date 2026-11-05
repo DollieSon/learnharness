@@ -4,8 +4,17 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import { createWebTools } from "../src/agent/tools/web.ts";
+import { urlGuardDeps } from "../src/agent/tools/url-guard.ts";
+
+// No network includes DNS: the URL guard resolves every host — answer with
+// a public address so the stubbed fetch is what gets exercised.
+const realLookup = urlGuardDeps.lookup;
+urlGuardDeps.lookup = async () => [{ address: "93.184.215.14", family: 4 }];
+after(() => {
+	urlGuardDeps.lookup = realLookup;
+});
 import { jobTools } from "../src/agent/tools/jobs.ts";
 import { runResearcherAgent } from "../src/agent/subagents/researcher.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";

@@ -19,6 +19,15 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { createPdfReadTools } from "../src/agent/tools/pdf-read.ts";
 import { createWebTools } from "../src/agent/tools/web.ts";
+import { urlGuardDeps } from "../src/agent/tools/url-guard.ts";
+
+// Zero network includes DNS: the URL guard resolves every host — answer
+// with a public address so the stubbed fetch is what gets exercised.
+const realLookup = urlGuardDeps.lookup;
+urlGuardDeps.lookup = async () => [{ address: "93.184.215.14", family: 4 }];
+after(() => {
+	urlGuardDeps.lookup = realLookup;
+});
 
 /** Build a valid N-page PDF in memory — ASCII-only so string offsets ARE
  *  byte offsets; xref entries computed as we assemble. */
