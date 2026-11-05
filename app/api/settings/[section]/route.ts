@@ -39,6 +39,7 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	syncSearxng,
 	syncWhisper,
 	validateChatSettings,
 	validateModelsSettings,
@@ -132,5 +133,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	writeSettingsRecord(next);
 	// Local Whisper follows the dictation engine/model (owner, 2026-11-03).
 	if (section === "dictation") void syncWhisper().catch(() => {});
+	// SearXNG follows its agent-section switch (blog review plan M2, 2026-11-06).
+	if (section === "agent") void syncSearxng().catch(() => {});
 	return Response.json({ settings: next });
 }

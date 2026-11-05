@@ -20,7 +20,7 @@ Status: **approved by the owner 2026-11-06.** Branch `feat/blog-review`
 | Lesson flow | **Recall first.** PROBE: the learner's recall (main claim, key takeaway, anything that seemed off), no hints. TEACH: the agent's summary of the blog, the fact-check findings with sources, omissions, related topics, and check questions on each part. |
 | Entry points | **Both**: a "Review a blog" button (home + new-session screens) that starts a fresh lesson, AND pasting an article link into any lesson. |
 | Saving | **Auto-save** every reviewed blog as a source, built from the **fact-checked write-up** (never the raw blog text), so false claims enter the graph only as flagged errors. |
-| Search engine | **SearXNG, managed by the app** through Docker (like the local Whisper server). |
+| Search engine | **SearXNG, managed by the app** through Docker (like the local Whisper server). **Amended during M2:** the container runs **only while the app is open** (`docker run --rm`, stopped on quit; no background restarts); a **free loopback port** is picked per start (no port setting); if Docker Desktop isn't running the app **shows a message + Retry** and never launches it. |
 | Engine order | **SearXNG first** when enabled and healthy, then Tavily, then Brave. An explicit engine pin still wins; nothing ever silently switches engines. |
 | Page rendering | **Plain download + Readability first**; only when that yields no article, render in the **local sandboxed Chromium** (the app's Electron browser-service, system Chrome fallback). **The Jina Reader fallback is removed.** **Amended during M1: blog lessons ALWAYS render** (only the rendered page's computed styles reveal text hidden by external CSS); research fetches stay fast-first. No browser available → blogs use the fast path with a "reduced hidden-text detection" note. |
 | What the teacher sees | **Default: the reader's brief + short verbatim quotes** (never the full page). Optional **full article text, fenced as untrusted data** — a global Settings default (off) **plus** a per-lesson "Use full text" toggle on the blog's link card. |
@@ -67,21 +67,21 @@ Files: new `src/server/searxng/` (modelled on `src/server/whisper/`),
 `src/core/search.ts`, `src/server/search.ts`, settings contracts + UI, new
 `docs/searxng.md`.
 
-- [ ] Docker manager: detect the `docker` CLI and a running daemon; write
+- [x] Docker manager: detect the `docker` CLI and a running daemon; write
       `settings.yml` into the data dir (`search.formats: [html, json]`,
       random `server.secret_key`, `server.limiter: false`); run a pinned
       `searxng/searxng` image as container `learnharness-searxng`, published
-      on `127.0.0.1:<port>` only (default 8888), `--restart unless-stopped`,
+      on `127.0.0.1` only, on a free port per start, `--rm` (runs only while the app is open),
       the settings dir mounted at `/etc/searxng`. Start / stop / status /
       health (a JSON test query).
-- [ ] `searxng` adapter behind the search port: `GET {base}/search?q=…&format=json`
+- [x] `searxng` adapter behind the search port: `GET {base}/search?q=…&format=json`
       → `{title, url, snippet}`.
-- [ ] `SearchEngineId` gains `"searxng"`; resolution order SearXNG → Tavily
+- [x] `SearchEngineId` gains `"searxng"`; resolution order SearXNG → Tavily
       → Brave; SearXNG is "live" when enabled in settings and healthy. Pin
       rule unchanged (pinned + not live = honestly unavailable).
-- [ ] Settings panel beside the search settings: Docker status, Install /
-      Start / Stop, port, "Test search".
-- [ ] `docs/searxng.md` (setup, how it works, troubleshooting) + tests
+- [x] Settings panel beside the search settings: Docker status, the on/off
+      switch, Install, Retry, "Test search".
+- [x] `docs/searxng.md` (setup, how it works, troubleshooting) + tests
       (adapter with stub fetch, resolution order, manager with a fake
       docker runner).
 

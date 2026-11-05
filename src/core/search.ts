@@ -30,8 +30,41 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** The engine ids this wave ships (the catalog: curated keys + adapters). */
-export type SearchEngineId = "tavily" | "brave";
+/** The engine ids (the catalog): SearXNG is the app-managed local engine
+ *  (blog review plan M2, owner 2026-11-06); Tavily + Brave are keyed APIs. */
+export type SearchEngineId = "searxng" | "tavily" | "brave";
+
+export const SEARCH_ENGINE_IDS: readonly SearchEngineId[] = ["searxng", "tavily", "brave"];
+
+export function isSearchEngineId(value: unknown): value is SearchEngineId {
+	return value === "searxng" || value === "tavily" || value === "brave";
+}
+
+/** The settings record's search section (agent.search). `engine` is an
+ *  optional explicit pin; `searxng.enabled` turns the app-managed local
+ *  engine on (absent = off, owner 2026-11-06). */
+export interface SearchSettings {
+	engine?: SearchEngineId;
+	searxng?: { enabled: boolean };
+}
+
+/** Same-origin intent header on every SearXNG control request. */
+export const SEARXNG_INTENT_HEADER = "x-learnharness-searxng";
+
+/** The app-managed SearXNG engine as the Settings panel sees it. */
+export interface SearxngStatus {
+	enabled: boolean;
+	/** Docker Desktop: CLI missing, daemon down, or ready to run containers. */
+	docker: "ready" | "not-installed" | "not-running";
+	/** The pinned image (docker pull = "Install"). */
+	image: { ref: string; installed: boolean; approxSizeMb: number };
+	/** An image pull in progress (the last progress line), or null. */
+	pull: { detail: string } | null;
+	/** The last failed pull's message, or null. */
+	pullError: string | null;
+	/** The container this app runs while it is open. */
+	process: { phase: "stopped" | "starting" | "running" | "error"; error: string | null };
+}
 
 /** A live search engine: an id (for status/labels) + one operation. The
  *  adapters own their wire protocol (fetch, timeouts, error mapping) —

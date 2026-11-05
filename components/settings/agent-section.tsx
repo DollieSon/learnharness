@@ -77,6 +77,7 @@ import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } 
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
+import { SearxngPanel } from "./searxng-settings.tsx";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
@@ -86,8 +87,13 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
 
-/** The search engines this wave ships (src/core/search.ts) + their labels. */
-const SEARCH_ENGINES = ["tavily", "brave"] as const;
+/** The search engines (src/core/search.ts), in menu order: the app-managed
+ *  local SearXNG (blog review plan M2) first, then the keyed APIs. */
+const SEARCH_ENGINES = ["searxng", "tavily", "brave"] as const;
+type MenuEngine = (typeof SEARCH_ENGINES)[number];
+/** The engines a key activates (/api/keys marks). */
+const KEYED_ENGINES = ["tavily", "brave"] as const;
+const ENGINE_LABELS: Record<MenuEngine, string> = { searxng: "SearXNG (local)", tavily: "Tavily", brave: "Brave" };
 
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
@@ -165,14 +171,22 @@ export function composeSlotCacheRetention(models: ModelsSettings | undefined, sl
  *  Pure — exported for tests. */
 export function composeSearchEngine(
 	agent: AgentSettings | undefined,
-	engine: (typeof SEARCH_ENGINES)[number] | null,
+	engine: MenuEngine | null,
 ): AgentSettings {
+	const searxng = agent?.search?.searxng;
 	if (engine === null) {
 		if (!agent?.search) return { ...agent };
 		const { search: _drop, ...rest } = agent;
-		return { ...rest } as AgentSettings;
+		// Clearing the pin keeps the SearXNG switch (a separate setting).
+		return (searxng ? { ...rest, search: { searxng } } : { ...rest }) as AgentSettings;
 	}
-	return { ...agent, search: { engine } };
+	return { ...agent, search: { engine, ...(searxng ? { searxng } : {}) } };
+}
+
+/** Compose: the SearXNG switch (blog review plan M2). Off writes an explicit
+ *  false; the engine pin is carried untouched. Pure — exported for tests. */
+export function composeSearxngEnabled(agent: AgentSettings | undefined, enabled: boolean): AgentSettings {
+	return { ...agent, search: { ...agent?.search, searxng: { enabled } } };
 }
 
 /** The indicator under a row whose override IS the version in use (owner
@@ -310,7 +324,7 @@ export function AgentSection({
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
-	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
+	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof KEYED_ENGINES)[number], boolean>>>({});
 	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
@@ -359,8 +373,8 @@ export function AgentSection({
 		fetch("/api/keys")
 			.then((r) => r.json())
 			.then((body: { keys: { id: string; present: boolean }[] }) => {
-				const present: Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>> = {};
-				for (const id of SEARCH_ENGINES) {
+				const present: Partial<Record<(typeof KEYED_ENGINES)[number], boolean>> = {};
+				for (const id of KEYED_ENGINES) {
 					const envVar = id === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY";
 					present[id] = body.keys.some((k) => k.id === envVar && k.present);
 				}
@@ -375,7 +389,7 @@ export function AgentSection({
 	// the hint contradicted the trigger it sits under.
 	useEffect(() => {
 		refreshSearch();
-	}, [agent?.search?.engine]);
+	}, [agent?.search?.engine, agent?.search?.searxng?.enabled]);
 
 	// The dropdown contract (the chat model selector's, mirrored): any
 	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
@@ -453,11 +467,12 @@ export function AgentSection({
 
 		/** The search-engine menu row — label + the quiet live-key mark. */
 	const engineOption = (
-		id: (typeof SEARCH_ENGINES)[number] | "auto",
+		id: MenuEngine | "auto",
 		label: string,
 		active: boolean,
 		live: boolean | null,
 		onPick: () => void,
+		marks: { on: string; off: string } = { on: "✓ key", off: "· no key" },
 	) => (
 		<button
 			key={id}
@@ -470,7 +485,7 @@ export function AgentSection({
 		>
 			<span>{label}</span>
 			<span className="text-muted-foreground">
-				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>· no key</span>}
+				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>{marks.on}</span> : <span aria-hidden>{marks.off}</span>}
 			</span>
 		</button>
 	);
@@ -816,25 +831,27 @@ export function AgentSection({
 				))}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
-					const anyKey = engineKeys.tavily === true || engineKeys.brave === true;
+					const searxngOn = agent?.search?.searxng?.enabled === true;
+					const anyEngine = searxngOn || engineKeys.tavily === true || engineKeys.brave === true;
 					const open = openMenu?.target === "search";
 					return (
+						<>
 						<SettingsRow
 							label="Search engine"
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
-							dimmed={!anyKey}
+							dimmed={!anyEngine}
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger
-									value={engine === "tavily" ? "Tavily" : engine === "brave" ? "Brave" : ""}
+									value={engine ? ENGINE_LABELS[engine] : ""}
 									emptyLabel="Automatic"
 									ariaLabel="Search engine"
 									testid="search-engine-trigger"
 									open={open}
 									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
 									widthClass="min-w-20"
-									disabled={!anyKey}
+									disabled={!anyEngine}
 								/>
 								{open && (
 									<MenuShell
@@ -848,15 +865,28 @@ export function AgentSection({
 											setOpenMenu(null);
 										})}
 										{SEARCH_ENGINES.map((id) =>
-											engineOption(id, id === "tavily" ? "Tavily" : "Brave", engine === id, engineKeys[id] ?? false, () => {
-												onSectionChange(composeSearchEngine(agent, id));
-												setOpenMenu(null);
-											}),
+											engineOption(
+												id,
+												ENGINE_LABELS[id],
+												engine === id,
+												id === "searxng" ? searxngOn : engineKeys[id] ?? false,
+												() => {
+													onSectionChange(composeSearchEngine(agent, id));
+													setOpenMenu(null);
+												},
+												id === "searxng" ? { on: "✓ on", off: "· off" } : undefined,
+											),
 										)}
 									</MenuShell>
 								)}
 							</span>
 						</SettingsRow>
+						<SearxngPanel
+							enabled={searxngOn}
+							onEnabledChange={(on) => onSectionChange(composeSearxngEnabled(agent, on))}
+							onStatusChange={refreshSearch}
+						/>
+						</>
 					);
 				})()}
 			</SettingsGroup>

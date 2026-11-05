@@ -58,3 +58,7 @@ export { customProviderGet, customProviderMutation } from "./custom-provider-htt
 // the managed whisper-server process and transcription.
 export { whisperStatusResponse, whisperDownloadResponse, whisperCancelResponse, whisperTranscribeResponse } from "./whisper/http.ts";
 export { syncWhisper } from "./whisper/process.ts";
+// App-managed SearXNG search (blog review plan M2, 2026-11-06): status,
+// install (image pull), retry, test search, and the container lifecycle.
+export { searxngStatusResponse, searxngInstallResponse, searxngRetryResponse, searxngTestResponse } from "./searxng/http.ts";
+export { syncSearxng } from "./searxng/process.ts";

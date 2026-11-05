@@ -33,7 +33,7 @@ import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
-import type { SearchEngineId } from "./search.ts";
+import { isSearchEngineId, type SearchSettings } from "./search.ts";
 import {
 	DEFAULT_WHISPER_MODEL, isDictationEngine, isDictationLanguage, isWhisperModel,
 	type DictationEngine, type DictationLanguage, type WhisperModelId,
@@ -359,8 +359,10 @@ export interface AgentSettings {
 	 *  never chooses an engine to make search work. An explicit choice only
 	 *  pins the preference (e.g. when BOTH keys are present); the chosen
 	 *  engine must still have its key, else search is honestly unavailable.
-	 *  Absent + no key = unavailable (no silent fallback, no default). */
-	search?: { engine?: SearchEngineId };
+	 *  Absent + no key = unavailable (no silent fallback, no default).
+	 *  `searxng.enabled` turns on the app-managed local engine (blog review
+	 *  plan M2, 2026-11-06), which then leads the auto order. */
+	search?: SearchSettings;
 	/** Prober graph tools (wave 7, owner ruling 2026-09-23): read-only
 	 *  knowledge-graph views for the prober agent — a session list +
 	 *  per-session propositions with understanding levels. Its SUBJECT
@@ -716,8 +718,15 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	// the write side's parser is strict — a stale client can't brick the
 	// record, it just loses the pin and auto-detection resumes).
 	if (raw.search !== null && typeof raw.search === "object" && !Array.isArray(raw.search)) {
-		const engine = (raw.search as Record<string, unknown>).engine;
-		if (engine === "tavily" || engine === "brave") out.search = { engine };
+		const rawSearch = raw.search as Record<string, unknown>;
+		const search: SearchSettings = {};
+		if (isSearchEngineId(rawSearch.engine)) search.engine = rawSearch.engine;
+		const searxng = rawSearch.searxng;
+		if (searxng !== null && typeof searxng === "object" && !Array.isArray(searxng)) {
+			const enabled = (searxng as Record<string, unknown>).enabled;
+			if (typeof enabled === "boolean") search.searxng = { enabled };
+		}
+		if (Object.keys(search).length) out.search = search;
 	}
 	// Prober graph tools (wave 7): its own agent-section subsection —
 	// lenient read side (a bad shape drops the key and the default ON
