@@ -305,6 +305,12 @@ export function FactCheckCard({ output }: { output: unknown }) {
 						</ul>
 					</div>
 				)}
+				{result.savedSourceId && (
+					<div className="flex items-center gap-1 text-xs text-muted-foreground" data-testid="fact-check-saved">
+						<CheckIcon className="size-3.5" />
+						Adding the fact-checked write-up to your sources (Blog reviews)
+					</div>
+				)}
 				{result.relatedTopics.length > 0 && (
 					<div>
 						<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Related topics</div>

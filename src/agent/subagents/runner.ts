@@ -32,7 +32,7 @@ import * as path from "node:path";
 import type { ModelRole } from "../../../config.ts";
 import { ROLE_SLOT, modelsNotConfigured, type ModelSlotName, type ProviderKeyMissing } from "../../core/settings.ts";
 import type { ChatStore, JobStore } from "../../core/ports.ts";
-import { runBlogReader, runFactChecker } from "./blog.ts";
+import { blogSourcePath, blogWriteUp, runBlogReader, runFactChecker } from "./blog.ts";
 import { runDemoBuilder } from "./demo-builder.ts";
 import { runPdfReaderAgent } from "./pdf-reader.ts";
 import { runResearcherAgent } from "./researcher.ts";
@@ -110,6 +110,11 @@ export interface JobRunnerDeps {
 	providerKeyMissing?: (provider: string, tier: ModelSlotName) => ProviderKeyMissing | null;
 	/** The blog job's settings, read FRESH per job (absent = both off). */
 	blogSettings?: () => BlogJobSettings;
+	/** Save a fact-checked blog write-up as a knowledge-graph source (blog
+	 *  review plan M5). Starts the import in the background and returns the
+	 *  source id, or null when saving is off (graph disabled). Absent = no
+	 *  saving (tests). */
+	saveBlogSource?: (input: { filePath: string; text: string }) => string | null;
 }
 
 export interface JobRunner {
@@ -627,6 +632,19 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				},
 			});
 			if (result.error && stillRunning(jobId)) jobStore.updateJob(jobId, { error: result.error });
+			else if (stillRunning(jobId)) {
+				// M5 (owner, 2026-11-06): only a successful check saves; one
+				// source per article URL; a save failure never fails the check.
+				try {
+					const savedSourceId = deps.saveBlogSource?.({
+						filePath: blogSourcePath(blog.finalUrl || blog.url),
+						text: blogWriteUp(blog, result),
+					});
+					if (savedSourceId) result.savedSourceId = savedSourceId;
+				} catch (err) {
+					console.warn(`[blog] saving the write-up failed: ${err instanceof Error ? err.message : String(err)}`);
+				}
+			}
 			await finishJob(jobId, result);
 		} catch (err) {
 			if (loop.abortSignal.aborted) return;

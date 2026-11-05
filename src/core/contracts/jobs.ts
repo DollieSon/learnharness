@@ -593,7 +593,7 @@ function steerText(kind: JobKind, result: SubagentResult, jobId: string): string
 		}
 		return [
 			"Fact-check complete. Use it in the teach phase: what the article gets right, what it gets wrong or misleading (with sources), what it leaves out, and related topics.",
-			check.savedSourceId ? "The fact-checked article was saved to the learner's sources." : "",
+			check.savedSourceId ? "A fact-checked write-up of the article is being added to the learner's sources (the Blog reviews folder) and knowledge graph — mention it in one line." : "",
 			"",
 			factCheckText(check),
 		]

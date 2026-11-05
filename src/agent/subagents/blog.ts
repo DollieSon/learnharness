@@ -335,3 +335,89 @@ export async function runFactChecker(blogJobId: string, blog: BlogResult, opts: 
 		relatedTopics: strList(parsed.relatedTopics, 8),
 	};
 }
+
+// ─── the fact-checked write-up (blog review plan M5) ────────────────────────
+
+/** The article's identity: the final URL without its fragment or tracking
+ *  parameters (utm_*, fbclid, gclid). Pure. */
+export function canonicalArticleUrl(raw: string): string {
+	try {
+		const url = new URL(raw);
+		url.hash = "";
+		for (const key of [...url.searchParams.keys()]) {
+			if (/^utm_/i.test(key) || key === "fbclid" || key === "gclid") url.searchParams.delete(key);
+		}
+		return url.href;
+	} catch {
+		return raw;
+	}
+}
+
+/** The saved source's path: one "Blog reviews" folder, the file named by
+ *  site and path (owner, 2026-11-06). The source id is a hash of this
+ *  path, so a later review of the same URL updates the same source. The
+ *  ".md" suffix keeps the label intact (labels drop the last extension). */
+export function blogSourcePath(rawUrl: string): string {
+	const url = new URL(canonicalArticleUrl(rawUrl));
+	const site = url.hostname.replace(/^www\./, "");
+	const slug = `${url.pathname}${url.search}`
+		.replace(/^\/+|\/+$/g, "")
+		.replace(/[\\/]+/g, " › ")
+		.replace(/[^\w.\- ›?=&%]+/g, "-")
+		.slice(0, 120);
+	return `Blog reviews/${slug ? `${site} › ${slug}` : site}.md`;
+}
+
+/** The fact-checked write-up that enters the graph (pure). Built from the
+ *  verdicts, never the raw article: only CHECKED claims appear, and a wrong
+ *  or misleading claim appears only as the article's error followed by its
+ *  correction. Unverifiable claims are marked as such. */
+export function blogWriteUp(blog: BlogResult, check: FactCheckResult, reviewedAt: Date = new Date()): string {
+	const url = canonicalArticleUrl(blog.finalUrl || blog.url);
+	const byline = [blog.author, blog.published].filter(Boolean).join(", ");
+	const sources = (v: FactCheckVerdict) =>
+		v.sources.length ? ` Sources: ${v.sources.map((s) => `[${s.title}](${s.url})`).join("; ")}.` : "";
+	const group = (kind: FactCheckVerdictKind) => check.verdicts.filter((v) => v.verdict === kind);
+	const lines: string[] = [
+		`# Fact-checked review: ${blog.title || url}`,
+		"",
+		`Article: ${url}${byline ? ` (${byline})` : ""}. Reviewed and fact-checked on ${reviewedAt.toISOString().slice(0, 10)}.`,
+		"",
+		"This is a fact-checked review, not the article itself. Claims marked wrong or misleading are the article's errors and are followed by the correction; never treat them as true. Unverifiable claims are unconfirmed.",
+		"",
+		"## Overall",
+		"",
+		check.summary || "(no overall assessment)",
+		"",
+		`The article argues (a summary of its position, not verified as a whole): ${blog.thesis}`,
+	];
+	const supported = group("supported");
+	if (supported.length) {
+		lines.push("", "## Supported by independent sources", "");
+		for (const v of supported) lines.push(`- ${v.claim} ${v.explanation}${sources(v)}`);
+	}
+	const wrong = group("wrong");
+	if (wrong.length) {
+		lines.push("", "## The article's errors (wrong claims and their corrections)", "");
+		for (const v of wrong) lines.push(`- The article claims that ${v.claim} This is wrong. Correction: ${v.explanation}${sources(v)}`);
+	}
+	const misleading = group("misleading");
+	if (misleading.length) {
+		lines.push("", "## Misleading claims (and the missing context)", "");
+		for (const v of misleading) lines.push(`- The article claims that ${v.claim} This is misleading: ${v.explanation}${sources(v)}`);
+	}
+	const unverifiable = group("unverifiable");
+	if (unverifiable.length) {
+		lines.push("", "## Unverified claims", "");
+		for (const v of unverifiable) lines.push(`- Unverified: the article claims that ${v.claim} ${v.explanation}`);
+	}
+	if (check.omissions.length) {
+		lines.push("", "## What the article leaves out", "");
+		for (const o of check.omissions) lines.push(`- ${o}`);
+	}
+	if (check.relatedTopics.length) {
+		lines.push("", "## Related topics", "");
+		for (const t of check.relatedTopics) lines.push(`- ${t}`);
+	}
+	return `${lines.join("\n")}\n`;
+}

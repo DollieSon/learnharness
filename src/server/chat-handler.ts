@@ -30,7 +30,9 @@ import {
 import { runPiTurn } from "./pi/ui-stream.ts";
 import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
+import { createHash } from "node:crypto";
 import { effectiveSettings, stores } from "./stores.ts";
+import { sourceDirectory } from "./source-organization.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
@@ -117,6 +119,21 @@ const jobRunner = createJobRunner({
 	blogSettings: () => {
 		const blog = stores.settingsStore.readSettings()?.agent?.blog;
 		return { autoShareFullText: blog?.autoShareFullText === true, injectionCheck: blog?.injectionCheck === true };
+	},
+	// Blog review M5: a successful fact-check saves its write-up as a
+	// source through the SAME notes import pipeline (one source per URL,
+	// in the "Blog reviews" folder). Nothing saves while the graph is off.
+	saveBlogSource: ({ filePath, text }) => {
+		if (!extractionEnabled(effectiveSettings().graph)) return null;
+		sourceDirectory.registerImport(filePath);
+		void extraction
+			.importNotes({ filePath, text })
+			.catch((err: unknown) => {
+				console.warn(`[blog] write-up import failed (${filePath}): ${err instanceof Error ? err.message : String(err)}`);
+			})
+			.finally(() => emit("sources-changed", {}));
+		emit("sources-changed", {});
+		return `src_${createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 	},
 });
 /** The app's ONE extraction pipeline instance — both front doors share it:

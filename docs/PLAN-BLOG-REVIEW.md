@@ -167,7 +167,7 @@ Decided (owner, 2026-11-06, before the autonomous run):
   site and path.
 - Nothing saves when the graph or extraction is switched off.
 
-- [ ] After a successful fact-check, build the fact-checked write-up (each
+- [x] After a successful fact-check, build the fact-checked write-up (each
       claim with its verdict, explanation and sources; false claims only as
       flagged errors with their correction; omissions; related topics) —
       never the raw article text — and run it through the notes import
