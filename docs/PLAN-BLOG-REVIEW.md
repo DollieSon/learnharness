@@ -130,28 +130,56 @@ Amendments (owner, 2026-11-06, while building M3):
 - [x] Tests with scripted fake engines (no network): `tests/blog-review.test.ts`.
 
 ### M4 — The blog lesson flow
-Files: `src/agent/prompt-segments.ts` / teacher prompt, home + new-session
-screens.
+Amended (owner, 2026-11-06): blog lessons are their own session kind.
+Recall questions follow the global Quizzing setting.
 
-- [ ] Teacher instructions for a blog lesson: PROBE recall questions
-      graded against the brief; TEACH the summary, fact-check findings with
-      sources, omissions, related topics, with check questions on each.
-- [ ] Teacher instruction: an article URL pasted into any lesson → dispatch
-      the `blog` job.
-- [ ] "Review a blog" button on the home and new-session screens: a URL
-      field that starts a fresh lesson in blog mode.
+- [x] `ChatKind` gains `"blog"`. `POST /api/chats { kind: "blog", url }`
+      requires an http(s) URL (400 otherwise); the title starts as
+      "Blog · <site>" and is renamed to the article title when the brief
+      arrives; the first learner message is "Review this article with me:
+      <url>".
+- [x] Blog sessions run prober → teacher like a lesson, plus blog-only
+      prompt fragments (`src/agent/prompts/blog/`, overridable in Settings):
+      the prober dispatches `blog` at once, asks the goal while it reads,
+      runs recall questions (main claim, takeaway, anything that seemed
+      off) graded against the brief, dispatches `fact_check`, then
+      `probe_done`; the teacher teaches the summary, the fact-check
+      findings with sources, omissions and related topics, with check
+      questions on each.
+- [x] Normal lessons: one instruction — an article link the learner wants
+      to learn from → dispatch `blog`.
+- [x] UI: home mode switch Teach | Practice | Blog (Blog shows a URL
+      field); sidebar "New blog review" button, globe badge, filter
+      Teach | Practice | Blog | All; `/chat/new?mode=blog`; header chip
+      "Blog".
+- [x] Session extraction stays on for blog sessions (M5 adds the
+      fact-checked write-up as a source).
 
 ### M5 — Saving to the graph
-- [ ] After the fact-check, build a fact-checked write-up (each claim with
-      its verdict and sources, phrased "the blog claims X; this is wrong
-      because Y" where it is wrong; omissions; related topics) and run it
-      through the existing import/extraction pipeline as a source whose
-      identity is the canonicalized URL (re-reviewing updates, never
-      duplicates). Shown in the sources sidebar with title + URL.
+Decided (owner, 2026-11-06, before the autonomous run):
+- Only a **successful** fact-check saves; a failed check saves nothing
+  (re-running `fact_check` saves then).
+- **Every** fact-checked blog saves — blog sessions and links pasted into
+  normal lessons alike.
+- **One source per article URL**: a later fact-check of the same URL
+  re-runs extraction into that same source.
+- Saved write-ups go into a **"Blog reviews"** folder in Sources, named by
+  site and path.
+- Nothing saves when the graph or extraction is switched off.
 
-### M6 — Tests and docs
+- [ ] After a successful fact-check, build the fact-checked write-up (each
+      claim with its verdict, explanation and sources; false claims only as
+      flagged errors with their correction; omissions; related topics) —
+      never the raw article text — and run it through the notes import
+      pipeline as the URL's source. The fact-check card says when it saved.
+
+### M6 — Tests, docs and delivery
 - [ ] Full test suite green (excluding known environment-only failures).
 - [ ] `docs/architecture.md` updated; this plan's checkboxes ticked.
+- [ ] Live end-to-end test: local SearXNG (installed through the app) and
+      one real blog in a blog session; the test session is deleted after.
+- [ ] One PR from `feat/blog-review` (it carries the local-whisper commits)
+      into the fork's `main` (DollieSon/learnharness), conflicts resolved.
 
 ## Safety rules (apply to every milestone)
 

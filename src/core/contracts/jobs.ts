@@ -581,7 +581,7 @@ function steerText(kind: JobKind, result: SubagentResult, jobId: string): string
 				? `\n${fenceUntrusted("ARTICLE TEXT", blog.fullText)}${blog.fullTextTruncated ? "\n(The article text was truncated.)" : ""}`
 				: "",
 			"",
-			`NEXT: call fact_check with blog_job "${jobId}" right away (it runs in the background), then begin the recall questions about this article.`,
+			`NEXT: call fact_check with blog_job "${jobId}" right away (it runs in the background), then continue: in a blog review session, start the recall questions about this article; in any other lesson, use the brief where the learner wanted it.`,
 		]
 			.filter((line) => line !== "")
 			.join("\n");

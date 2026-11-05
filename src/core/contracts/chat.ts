@@ -24,8 +24,19 @@ import type { EmissionStats } from "./graph.ts";
 /** The session's kind (practice sessions, owner 2026-10-04): "teach" is
  *  the default and ABSENT on pre-practice records (no migration — absence
  *  reads as teach); "practice" marks an adaptive-practice session — the
- *  practice agent, its two tools, no extraction, no graph writes. */
-export type ChatKind = "teach" | "practice";
+ *  practice agent, its two tools, no extraction, no graph writes.
+ *  "blog" (blog review plan M4, owner 2026-11-06) marks a blog review:
+ *  prober → teacher like a lesson, plus the blog prompt fragments. */
+export type ChatKind = "teach" | "practice" | "blog";
+
+/** The blog session's first learner message (pure, shared by the client
+ *  starter and tests). */
+export function blogOpeningPrompt(url: string): string {
+	return `Review this article with me: ${url}`;
+}
+
+/** The provisional blog-session title until the brief names the article. */
+export const BLOG_TITLE_PREFIX = "Blog · ";
 
 export interface ChatRecord {
 	id: string;

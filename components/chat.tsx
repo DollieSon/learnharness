@@ -45,6 +45,7 @@ import {
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
+	type ChatKind,
 	type ChatSettings,
 	type LhMessage,
 	type ModelSlotName,
@@ -53,7 +54,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, FileTextIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, DumbbellIcon, FileTextIcon, GlobeIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -243,8 +244,9 @@ export function Chat({
 	initialError?: string;
 	/** The session kind (practice sessions, owner 2026-10-04): practice
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
-	 *  tag rides the header instead. */
-	kind?: "teach" | "practice";
+	 *  tag rides the header instead. Blog reviews (plan M4) keep the phase
+	 *  chip and add a Blog tag beside it. */
+	kind?: ChatKind;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -1411,7 +1413,19 @@ export function Chat({
 							Practice
 						</span>
 					) : (
-						<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						<>
+							{kind === "blog" && (
+								<span
+									data-testid="blog-chip"
+									aria-hidden="true"
+									className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+								>
+									<GlobeIcon className="size-3" />
+									Blog
+								</span>
+							)}
+							<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						</>
 					)}
 				</TopBar>
 

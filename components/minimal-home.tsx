@@ -128,7 +128,7 @@ export function MinimalHome({
 	const notesImport = useNotesImport({ onFinish: readState });
 	const { importing, onImportFiles } = notesImport;
 
-	const teachSessions = chats.filter((c) => c.kind === "teach").length;
+	const teachSessions = chats.filter((c) => c.kind === "teach" || c.kind === "blog").length; // blog reviews are lessons (plan M4)
 	const practiceSessions = chats.filter((c) => c.kind === "practice").length;
 
 	return (

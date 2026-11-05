@@ -2,6 +2,7 @@ import type { PiEngine } from "../models.ts";
 import type { SearchProvider } from "../../core/search.ts";
 import {
 	accumulateJobUsage,
+	BLOG_TITLE_PREFIX,
 	buildSubagentSteer,
 	isSubagentFailure,
 	piUsageToStep,
@@ -571,12 +572,27 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 			});
 			if (result.error && stillRunning(jobId)) jobStore.updateJob(jobId, { error: result.error });
+			else renameBlogSession(ctx.chatId, result.title);
 			await finishJob(jobId, result);
 		} catch (err) {
 			if (loop.abortSignal.aborted) return;
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, blogFailure(url, reason));
+		}
+	}
+
+	/** A blog session still carrying its provisional "Blog · <site>" title
+	 *  takes the article's title (plan M4). A learner's own rename wins. */
+	function renameBlogSession(chatId: string, articleTitle: string): void {
+		const title = articleTitle.trim().slice(0, 120);
+		if (!title) return;
+		const chat = chatStore.getChat(chatId);
+		if (chat?.kind !== "blog" || !chat.title.startsWith(BLOG_TITLE_PREFIX)) return;
+		try {
+			chatStore.renameChat(chatId, title);
+		} catch {
+			/* a vanished chat keeps nothing to rename */
 		}
 	}
 

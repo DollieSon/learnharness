@@ -37,6 +37,11 @@ export const FULL_TEXT_CHARS = 60_000;
 /** Owner default (accepted with the plan): at most 8 claims checked. */
 export const MAX_CHECKED_CLAIMS = 8;
 
+/** Test seam: the page read the blog job uses (readPage, always rendered). */
+export const blogReaderDeps = {
+	read: (url: string): Promise<PageRead> => readPage(url, { render: "always" }),
+};
+
 export interface BlogRunOptions {
 	engine?: PiEngine;
 	abortSignal?: AbortSignal;
@@ -178,7 +183,7 @@ export async function runBlogReader(url: string, opts: BlogReaderOptions): Promi
 	let page: PageRead;
 	try {
 		opts.onActivity?.("reading the page locally");
-		page = await (opts.read ?? ((u) => readPage(u, { render: "always" })))(url);
+		page = await (opts.read ?? blogReaderDeps.read)(url);
 	} catch (err) {
 		if (opts.abortSignal?.aborted) throw err;
 		return empty(err instanceof Error ? err.message : String(err));
