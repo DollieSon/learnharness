@@ -40,6 +40,8 @@ import {
 	fileAccessConfigurationError,
 	promptOverrides,
 	readSettingsRecord,
+	syncSearxng,
+	syncWhisper,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -130,6 +132,10 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	const stored = writeSettingsRecord(next);
+	// Local Whisper follows the dictation engine/model (owner, 2026-11-03).
+	if (section === "dictation") void syncWhisper().catch(() => {});
+	// SearXNG follows its agent-section switch (blog review plan M2, 2026-11-06).
+	if (section === "agent") void syncSearxng().catch(() => {});
 	const fileAccessError = fileAccessConfigurationError();
 	return Response.json({ settings: stored, ...(fileAccessError ? { fileAccessError } : {}) });
 }

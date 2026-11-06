@@ -14,14 +14,25 @@
  *  - An explicit choice does NOT silently fall back to another engine:
  *    engine pinned but its key missing = honestly unavailable (reason
  *    says so) — no guessing what the user meant.
+ *  - The app-managed local SearXNG engine (blog review plan M2, owner
+ *    2026-11-06) needs no key: when it is enabled and running it leads the
+ *    automatic order; pinned, it must be running.
  *
  * The adapters are injected dependencies (fetch-shaped) so the agent-layer
  * tool depends on the PORT only and tests never touch the network.
  */
 
-import { SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
+import {
+	SEARCH_ENGINES,
+	type KeyedSearchEngineId,
+	type SearchEngineId,
+	type SearchHit,
+	type SearchProvider,
+	type SearchStatus,
+} from "../core/search.ts";
 import { keyValue } from "./keys.ts";
 import { effectiveSettings } from "./stores.ts";
+import { searxngBaseUrl, searxngLive, searxngProcessView } from "./searxng/process.ts";
 
 /** The wire-callable shape the adapters close over (tests inject a stub). */
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
@@ -211,6 +222,47 @@ export function ollamaProvider(apiKey: string, fetchFn: FetchLike = fetch): Sear
 	};
 }
 
+/** SearXNG (blog review plan M2, owner 2026-11-06): the app-managed local
+ *  engine — GET {base}/search?q=…&format=json (JSON output is switched on
+ *  by the settings.yml this app writes). Response {results: [{title, url,
+ *  content, …}], unresponsive_engines: [[name, reason], …]}. `baseUrl`
+ *  resolves (and if needed starts) the running container per search. */
+export function searxngProvider(baseUrl: () => Promise<string>, fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "searxng",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const url = new URL("/search", await baseUrl());
+			url.searchParams.set("q", query);
+			url.searchParams.set("format", "json");
+			const resp = await fetchFn(url.toString(), {
+				headers: { accept: "application/json" },
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!resp.ok) {
+				const body = await resp.text();
+				throw new Error(`SearXNG search ${resp.status}: ${body.slice(0, 200)}`);
+			}
+			const data = (await resp.json()) as {
+				results?: Array<{ title?: string; url?: string; content?: string }>;
+				unresponsive_engines?: Array<[string, string]>;
+			};
+			const hits = (data.results ?? [])
+				.filter((r) => typeof r.url === "string" && r.url)
+				.slice(0, Math.min(count, 20))
+				.map((r) => ({
+					title: r.title ?? r.url ?? "",
+					url: r.url ?? "",
+					snippet: (r.content ?? "").replace(/\n/g, " ").slice(0, 500),
+				}));
+			if (hits.length === 0 && data.unresponsive_engines?.length) {
+				const names = data.unresponsive_engines.map(([name, why]) => `${name} (${why})`).join(", ");
+				throw new Error(`SearXNG found nothing — its upstream engines did not answer: ${names.slice(0, 300)}`);
+			}
+			return hits;
+		},
+	};
+}
+
 /** Match Exa's bounded result contract for the other new adapters. */
 function searchHit(title: unknown, url: unknown, snippet: unknown): SearchHit[] {
 	if (typeof url !== "string" || !url.trim()) return [];
@@ -227,15 +279,15 @@ function searchHit(title: unknown, url: unknown, snippet: unknown): SearchHit[] 
 
 /** The engine's key (env-or-file; env wins) — null when the engine is
  *  not keyed, which by owner decision means NOT LIVE. */
-function engineKey(id: SearchEngineId): string | null {
+function engineKey(id: KeyedSearchEngineId): string | null {
 	const envVar = SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
 	const value = envVar ? keyValue(envVar) : undefined;
 	return value ? value : null;
 }
 
 /** Every engine's live key, read fresh (the resolver's input). */
-function engineKeys(): Partial<Record<SearchEngineId, string>> {
-	const keys: Partial<Record<SearchEngineId, string>> = {};
+function engineKeys(): Partial<Record<KeyedSearchEngineId, string>> {
+	const keys: Partial<Record<KeyedSearchEngineId, string>> = {};
 	for (const { id } of SEARCH_ENGINES) {
 		const key = engineKey(id);
 		if (key) keys[id] = key;
@@ -243,14 +295,36 @@ function engineKeys(): Partial<Record<SearchEngineId, string>> {
 	return keys;
 }
 
+/** SearXNG's state for resolution: the settings switch, whether it is up
+ *  (running or starting), and why not when it is enabled but down. */
+export interface SearxngResolutionState {
+	enabled: boolean;
+	live: boolean;
+	error?: string | null;
+}
+
 /** Resolve the search state PURELY from the given pins (testable): the
- *  explicit engine (if pinned) wins but must be keyed; absent pin → first
- *  keyed engine in preference order. Never throws. */
+ *  explicit engine (if pinned) wins but must be live (SearXNG) or keyed;
+ *  absent pin → SearXNG when live, else the first keyed engine in
+ *  preference order. Never throws. */
 export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
 	/** Per-engine live keys (absent engine = absent property is fine). */
-	keys: Partial<Record<SearchEngineId, string | undefined>>,
+	keys: Partial<Record<KeyedSearchEngineId, string | undefined>>,
+	searxng: SearxngResolutionState = { enabled: false, live: false },
 ): SearchStatus & { key: string | null } {
+	const searxngDown = searxng.enabled && !searxng.live
+		? `SearXNG is enabled but not running${searxng.error ? `: ${searxng.error}` : ""}`
+		: null;
+	if (pinned === "searxng") {
+		if (searxng.live) return { available: true, engine: "searxng", reason: "search engine: searxng (chosen)", key: null };
+		return {
+			available: false,
+			engine: null,
+			reason: searxngDown ?? 'search engine is set to "searxng" but SearXNG is turned off — enable it in Settings → Agent',
+			key: null,
+		};
+	}
 	const pinnedKey = pinned ? keys[pinned] ?? null : null;
 	if (pinned) {
 		if (!pinnedKey) {
@@ -263,26 +337,41 @@ export function resolveSearchEngineFor(
 		}
 		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
 	}
+	if (searxng.live) return { available: true, engine: "searxng", reason: "search engine: searxng (auto)", key: null };
 	for (const { id } of SEARCH_ENGINES) {
 		const key = keys[id] ?? null;
-		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key };
+		if (key) {
+			return {
+				available: true,
+				engine: id,
+				reason: `search engine: ${id} (auto)${searxngDown ? ` — ${searxngDown}` : ""}`,
+				key,
+			};
+		}
 	}
 	return {
 		available: false,
 		engine: null,
-		reason: "no search engine configured — set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key",
+		reason: searxngDown ?? "no search engine configured — enable local SearXNG or set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key",
 		key: null,
 	};
+}
+
+/** The live resolution: settings pin + SearXNG state + keys, read fresh. */
+function liveResolution(): SearchStatus & { key: string | null } {
+	const search = effectiveSettings().agent.search;
+	return resolveSearchEngineFor(search?.engine, engineKeys(), {
+		enabled: search?.searxng?.enabled === true,
+		live: searxngLive(),
+		error: searxngProcessView().error,
+	});
 }
 
 /** The live search state (the honest availability signal): reads the
  *  settings record's pin + the auth store fresh each call, so a key saved
  *  mid-session activates on the next check (no restart). */
 export function searchStatus(): SearchStatus {
-	const { available, engine, reason } = resolveSearchEngineFor(
-		effectiveSettings().agent.search?.engine,
-		engineKeys(),
-	);
+	const { available, engine, reason } = liveResolution();
 	return { available, engine, reason };
 }
 
@@ -295,8 +384,10 @@ export function searchAvailable(): boolean {
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
 export function searchProvider(): SearchProvider | null {
-	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, engineKeys());
-	if (!resolved.available || !resolved.key) return null;
+	const resolved = liveResolution();
+	if (!resolved.available) return null;
+	if (resolved.engine === "searxng") return searxngProvider(() => searxngBaseUrl());
+	if (!resolved.key) return null;
 	switch (resolved.engine) {
 		case "tavily":
 			return tavilyProvider(resolved.key);

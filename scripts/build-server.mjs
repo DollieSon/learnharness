@@ -82,6 +82,8 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 for (const asset of [
 	path.join("src", "agent", "system-prompt.md"),
 	path.join("src", "agent", "prompts", "teacher", "20-teaching.md"),
+	path.join("src", "agent", "prompts", "blog-prober", "10-blog-probe.md"),
+	path.join("src", "agent", "prompts", "blog-teacher", "10-blog-teach.md"),
 ]) {
 	if (!exists(path.join(STANDALONE, asset))) {
 		console.error(`[build-server] prompt asset missing from the trace: ${asset}`);

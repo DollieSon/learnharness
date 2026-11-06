@@ -27,8 +27,11 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** Search engines in automatic preference order. Keep existing preferences
- * stable when adding an engine: an explicit pin always wins. */
+/** The KEYED search engines (API key = live), in automatic preference
+ * order. Keep existing preferences stable when adding an engine: an
+ * explicit pin always wins. The app-managed local SearXNG engine (blog
+ * review plan M2, owner 2026-11-06) is not keyed and sits outside this
+ * list; when it is live it leads the automatic order. */
 export const SEARCH_ENGINES = [
 	{ id: "tavily", label: "Tavily", envVar: "TAVILY_API_KEY" },
 	{ id: "brave", label: "Brave", envVar: "BRAVE_API_KEY" },
@@ -37,11 +40,50 @@ export const SEARCH_ENGINES = [
 	{ id: "ollama", label: "Ollama", envVar: "OLLAMA_API_KEY" },
 ] as const;
 
-export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
+/** A keyed engine's id. */
+export type KeyedSearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
+
+/** Every engine id: the local SearXNG engine plus the keyed catalog. */
+export type SearchEngineId = "searxng" | KeyedSearchEngineId;
+
+/** Every engine id, SearXNG first (the automatic order). */
+export const SEARCH_ENGINE_IDS: readonly SearchEngineId[] = ["searxng", ...SEARCH_ENGINES.map((engine) => engine.id)];
 
 /** The read/write guards' membership check (settings record + PUT body). */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {
-	return SEARCH_ENGINES.some((engine) => engine.id === value);
+	return value === "searxng" || SEARCH_ENGINES.some((engine) => engine.id === value);
+}
+
+/** Blog review settings (blog review plan M3): both default OFF. */
+export interface BlogSettings {
+	autoShareFullText?: boolean;
+	injectionCheck?: boolean;
+}
+
+/** The settings record's search section (agent.search). `engine` is an
+ *  optional explicit pin; `searxng.enabled` turns the app-managed local
+ *  engine on (absent = off, owner 2026-11-06). */
+export interface SearchSettings {
+	engine?: SearchEngineId;
+	searxng?: { enabled: boolean };
+}
+
+/** Same-origin intent header on every SearXNG control request. */
+export const SEARXNG_INTENT_HEADER = "x-learnharness-searxng";
+
+/** The app-managed SearXNG engine as the Settings panel sees it. */
+export interface SearxngStatus {
+	enabled: boolean;
+	/** Docker Desktop: CLI missing, daemon down, or ready to run containers. */
+	docker: "ready" | "not-installed" | "not-running";
+	/** The pinned image (docker pull = "Install"). */
+	image: { ref: string; installed: boolean; approxSizeMb: number };
+	/** An image pull in progress (the last progress line), or null. */
+	pull: { detail: string } | null;
+	/** The last failed pull's message, or null. */
+	pullError: string | null;
+	/** The container this app runs while it is open. */
+	process: { phase: "stopped" | "starting" | "running" | "error"; error: string | null };
 }
 
 /** A live search engine: an id (for status/labels) + one operation. The

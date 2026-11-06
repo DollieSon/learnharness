@@ -84,7 +84,11 @@ export const JOB_TOOLS = ["research", "demo", "visual"] as const;
  *  lenient for forward-compat. The names are the MODEL-FACING tool names
  *  (research, not researcher; pdf is the PDF-reader dispatch, sources v0
  *  2026-09). */
-export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf", "blog"] as const;
+
+/** Tools governed by ANOTHER tool's toggle (owner, 2026-11-06): the one
+ *  "blog" switch turns off blog reading AND its fact-check. */
+const TOGGLE_OWNER: Partial<Record<string, string>> = { fact_check: "blog" };
 
 /** The keys the settings WRITE side accepts in agent.tools: the plain
  *  toggleables PLUS the quizzing-mechanics switch (`explain: true` arms
@@ -108,6 +112,8 @@ export function filterEnabledTools<T>(tools: Record<string, T>, enabled?: Enable
 	const out: Record<string, T> = {};
 	for (const [name, tool] of Object.entries(tools)) {
 		if (enabled[name] === false) continue;
+		const owner = TOGGLE_OWNER[name];
+		if (owner && enabled[owner] === false) continue;
 		out[name] = tool;
 	}
 	return out;
@@ -168,6 +174,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
 	demo: "Building a demo…",
 	visual: "Making a visual…",
 	pdf: "Reading a PDF…",
+	blog: "Reading the article…",
+	fact_check: "Starting the fact-check…",
 	plan_init: "Drawing up the plan…",
 	probe_done: "Concluding the assessment…",
 };

@@ -14,6 +14,11 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
+import { normalizeArticleUrl, useBlogEnabled } from "@/components/blog-enabled";
+import { blogOpeningPrompt } from "@/src/core";
+
+/** The blog draft's invalid-link line (plan M4). */
+export const BLOG_URL_ERROR = "Paste a full article link, like https://example.com/post.";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
@@ -43,13 +48,20 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 export async function startDraftSession(
 	text: string,
 	fetchLike: typeof fetch,
-	mode?: "practice",
+	mode?: "practice" | "blog",
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t) return null;
+	// Blog reviews (plan M4): the draft IS the article link; the opening
+	// message names it. Callers validate first (normalizeArticleUrl).
+	if (mode === "blog") {
+		const url = normalizeArticleUrl(t);
+		if (!url) return null;
+		return starter.start({ title: blogOpeningPrompt(url), kind: "blog", url }, fetchLike, settingsIdentity);
+	}
 	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
@@ -80,6 +92,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	inputError = null,
 }: {
 	busy: boolean;
 	text: string;
@@ -88,8 +101,11 @@ export function DraftShell({
 	startError?: boolean;
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
-	 *  (the practice agent opens; no probing). */
-	mode?: "teach" | "practice";
+	 *  (the practice agent opens; no probing). ?mode=blog (plan M4): the
+	 *  draft is an article link and the session is a blog review. */
+	mode?: "teach" | "practice" | "blog";
+	/** An inline input problem (blog mode: not a valid link). */
+	inputError?: string | null;
 	/** The first-run CTA (fix wave chunk B): the same "Set up your models"
 	 *  affordance home carries, rendered above the draft shell — passed by
 	 *  NewSession, which owns the configured state and the SetupDialog. */
@@ -170,11 +186,13 @@ export function DraftShell({
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
 								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : "New session"}
+									title={mode === "practice" ? "New practice session" : mode === "blog" ? "New blog review" : "New session"}
 									description={
 										mode === "practice"
 											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
+											: mode === "blog"
+												? "Paste a link to an article. You'll recall what you took from it first, then go through what it gets right, what it gets wrong, and what it leaves out."
+												: "The teacher will open by probing what you already know."
 									}
 								/>
 							</ConversationContent>
@@ -189,6 +207,7 @@ export function DraftShell({
 									setup={setupCta}
 								/>
 								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+								{inputError && <p role="alert" data-testid="draft-input-error" className="pointer-events-auto mb-2 text-sm text-destructive">{inputError}</p>}
 								<div data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
 									<Composer
 										busy={busy}
@@ -204,7 +223,7 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={mode === "practice" ? "What do you want to practice?" : mode === "blog" ? "Paste an article link (https://…)" : "What do you want to learn?"}
 									/>
 								</div>
 								<StatsBar
@@ -229,7 +248,12 @@ export function DraftShell({
 	);
 }
 
-export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" }) {
+export function NewSession({ initialConfigured, mode: requestedMode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "blog" }) {
+	// Blog mode needs the blog tool (plan M4): with Tool · blog off the
+	// draft falls back to a normal lesson.
+	const blogEnabled = useBlogEnabled();
+	const mode = requestedMode === "blog" && !blogEnabled ? "teach" : requestedMode;
+	const [inputError, setInputError] = useState<string | null>(null);
 	const router = useRouter();
 	const [text, setText] = useState("");
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
@@ -302,10 +326,15 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 			openModelPicker();
 			return; // The learner replaces it explicitly, then sends again.
 		}
+		if (mode === "blog" && !normalizeArticleUrl(draft)) {
+			setInputError(BLOG_URL_ERROR);
+			return;
+		}
+		setInputError(null);
 		startingRef.current = true;
 		setBusy(true);
 		setStartError(false);
-		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
+		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "practice" ? picksRef.current : undefined,
 			starterRef.current, JSON.stringify(catalog?.slots.strong))
 			.then((target) => {
 				if (target) router.push(target);
@@ -327,6 +356,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				onChange={applyText}
 				onSend={send}
 				mode={mode}
+				inputError={inputError}
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}

@@ -41,6 +41,8 @@ import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { DictationLanguageSetting } from "@/components/dictation-language";
+import { useDictationLanguage } from "@/components/dictation-preference";
+import { DictationEngineSetting, WhisperPanel, effectiveEngine, useWhisperStatus } from "./whisper-settings.tsx";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
  *  derived from pi-ai's own env-key table; no drift possible). */
@@ -376,6 +378,9 @@ export function KeysSection({
 	initialRow?: string;
 }) {
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
+	/** Dictation engine (local Whisper wave): which provider rows to show. */
+	const whisper = useWhisperStatus();
+	const dictationEngine = effectiveEngine(useDictationLanguage().engine, whisper.status);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
 	/** The unfolded row (its id), null = all folded. Seeded by the
@@ -580,7 +585,8 @@ export function KeysSection({
 			</SettingsGroup>
 
 			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
-				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
+				{label === "Dictation" && <DictationEngineSetting whisper={whisper} />}
+				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" && dictationEngine === "deepgram" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}
 						label={status.info?.label ?? status.id}
@@ -598,8 +604,9 @@ export function KeysSection({
 						testid={`key-${status.id.toLowerCase()}`}
 					/>
 				))}
-				{label === "Dictation" && <>
-					<DictationLanguageSetting />
+				{label === "Dictation" && dictationEngine === "whisper-local" && <WhisperPanel whisper={whisper} />}
+				{label === "Dictation" && <DictationLanguageSetting />}
+				{label === "Dictation" && dictationEngine === "deepgram" && <>
 					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 						Create a <a
 							href="https://console.deepgram.com/"

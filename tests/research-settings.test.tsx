@@ -106,7 +106,8 @@ it(`a ${label}-only key enables the engine menu and selecting ${label} saves the
 		assert.ok(!trigger.hasAttribute("disabled"));
 		await act(async () => trigger.click());
 		const optionIds = [...document.querySelectorAll('[data-testid^="engine-option-"]')].map((row) => row.getAttribute("data-testid"));
-		assert.deepEqual(optionIds, ["engine-option-auto", ...SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
+		// The app-managed local SearXNG (blog review plan M2) leads the keyed engines.
+		assert.deepEqual(optionIds, ["engine-option-auto", "engine-option-searxng", ...SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
 		const option = document.querySelector<HTMLButtonElement>(`[data-testid="engine-option-${id}"]`);
 		assert.ok(option);
 		assert.ok(option.textContent?.includes(label));

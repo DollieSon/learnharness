@@ -74,8 +74,8 @@ export type AgentKind = "prober" | "teacher" | "practice";
  *  tests/prompt-overrides.test.ts). Overrides are a static-file read
  *  through config paths, not request state — the store import carries no
  *  chat/job machinery. */
-export function composeInstructions(kind: AgentKind, switches?: Record<string, boolean>): string {
-	const segments = effectivePromptSegments(kind, switches ?? {});
+export function composeInstructions(kind: AgentKind, switches?: Record<string, boolean>, blog = false): string {
+	const segments = effectivePromptSegments(kind, switches ?? {}, { blog });
 	return segments
 		.map((s) => (s.enabled ? s.overrideText! : s.sourceText))
 		.map((t) => t.trim())
@@ -91,6 +91,12 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
+};
+// Blog sessions (plan M4): the prober/teacher composition plus the
+// blog-session fragments, cached the same way.
+const composedBlogInstructions: Partial<Record<AgentKind, string>> = {
+	prober: composeInstructions("prober", undefined, true),
+	teacher: composeInstructions("teacher", undefined, true),
 };
 
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
@@ -123,6 +129,9 @@ export interface AgentBuildOptions {
 	 *  fresh per turn, honoring enabled overrides (switch on + file
 	 *  exists); absent → the cached pure-source composition. */
 	promptSwitches?: Record<string, boolean>;
+	/** A blog review session (plan M4): the prober/teacher prompt adds the
+	 *  blog-session fragments. */
+	blog?: boolean;
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -184,9 +193,14 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
+	// Blog sessions (plan M4): the prober/teacher prompt adds the
+	// blog-session fragments.
+	const blog = opts.blog === true && kind !== "practice";
 	const composedPrompt = opts.promptSwitches
-		? composeInstructions(kind, opts.promptSwitches)
-		: composedInstructions[kind]!;
+		? composeInstructions(kind, opts.promptSwitches, blog)
+		: blog
+			? composedBlogInstructions[kind]!
+			: composedInstructions[kind]!;
 	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is

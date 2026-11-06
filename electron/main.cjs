@@ -264,12 +264,58 @@ function waitUntilUp(url, tries = 150) {
 	});
 }
 
+/** The server's local whisper-server (src/server/whisper/process.ts) is its
+ *  child. On Windows, killing the server is TerminateProcess, which skips the
+ *  server's own exit hook, so the shell stops whisper-server through the
+ *  pidfile — only after tasklist confirms that pid IS whisper-server.exe. */
+function killWhisperServer() {
+	if (process.platform !== "win32") return;
+	const pidFile = path.join(DATA_DIR(), "whisper", "server.pid");
+	let pid;
+	try {
+		pid = JSON.parse(fs.readFileSync(pidFile, "utf8")).pid;
+	} catch {
+		return;
+	}
+	if (!Number.isInteger(pid) || pid <= 0) return;
+	try {
+		const out = require("node:child_process").execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { windowsHide: true, encoding: "utf8" });
+		if (out.toLowerCase().includes('"whisper-server.exe"')) process.kill(pid);
+		fs.rmSync(pidFile, { force: true });
+	} catch {
+		/* best effort: the next server boot also cleans up a stale pid */
+	}
+}
+
+/** The server's SearXNG container (src/server/searxng/process.ts) runs only
+ *  while the app is open (owner, 2026-11-06). A hard-killed server skips its
+ *  own exit hook, so the shell removes the container when the marker file
+ *  says one was started. `docker run --rm` leaves nothing else behind. */
+function stopSearxngContainer() {
+	const marker = path.join(DATA_DIR(), "searxng", "container.json");
+	let container;
+	try {
+		container = JSON.parse(fs.readFileSync(marker, "utf8")).container;
+	} catch {
+		return;
+	}
+	if (container !== "learnharness-searxng") return;
+	try {
+		require("node:child_process").execFileSync("docker", ["rm", "-f", container], { windowsHide: true, timeout: 10_000, stdio: "ignore" });
+	} catch {
+		/* best effort: the next start removes a leftover container by name */
+	}
+	fs.rmSync(marker, { force: true });
+}
+
 function killServer() {
 	chatgpt?.close();
 	subscriptions?.close();
 	if (!serverProcess) return;
 	const child = serverProcess;
 	serverProcess = null;
+	killWhisperServer();
+	stopSearxngContainer();
 	child.kill("SIGTERM");
 	setTimeout(() => {
 		try {

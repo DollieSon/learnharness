@@ -25,7 +25,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
-import type { SearchEngineId } from "./search.ts";
+import type { BlogSettings, SearchSettings } from "./search.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
 	FACTORY_SETTINGS,
@@ -73,7 +73,8 @@ export type EffectiveAppearance = FactorySettings["appearance"];
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {
 	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
+	/** `engine` stays absent when unset: its default is the server platform's. */
+	dictation: FactorySettings["dictation"] & Pick<DictationSettings, "engine">;
 	agent: {
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
@@ -83,7 +84,9 @@ export interface EffectiveSettings {
 		/** The search-engine preference as stored (search wave, 2026-09-20):
 		 *  passthrough delta — engine resolution (pin → auto → unavailable)
 		 *  lives in server/search.ts, where keys are visible. */
-		search: { engine?: SearchEngineId };
+		search: SearchSettings;
+		/** Blog review settings as stored (absent fields = off). */
+		blog: BlogSettings;
 		/** Prober graph tools (wave 7): passthrough delta as stored —
 		 * absent/undefined enabled = ON; consumers use graphToolsEnabled. */
 		graphTools: { enabled?: boolean };
@@ -189,12 +192,15 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
+			whisperModel: record?.dictation?.whisperModel ?? FACTORY_SETTINGS.dictation.whisperModel,
+			...(record?.dictation?.engine ? { engine: record.dictation.engine } : {}),
 		},
 		agent: {
 			models,
 			tools: agent.tools ?? {},
 			prompts: agent.prompts ?? {},
 			search: agent.search ?? {},
+			blog: agent.blog ?? {},
 			graphTools: agent.graphTools ?? {},
 		},
 		models: {

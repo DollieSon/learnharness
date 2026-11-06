@@ -2,7 +2,10 @@ import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "
 
 interface SessionCreation {
 	title: string;
-	kind?: "practice";
+	kind?: "practice" | "blog";
+	/** Blog reviews (plan M4): the article URL (title carries the opening
+	 *  message "Review this article with me: <url>"). */
+	url?: string;
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
 }
 

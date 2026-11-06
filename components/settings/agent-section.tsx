@@ -31,7 +31,9 @@
  * grays whole-row (a choice without a key would only BLOCK another
  * engine's auto-activation).
  *
- * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
+ * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf;
+ * plus blog (blog review plan M3, 2026-11-06 — one switch for reading AND
+ * fact-checking) and its two agent.blog switches.
  * Absent key = enabled in the schema; the UI writes explicit booleans for
  * all four (simpler to reason about, sanitize-equivalent).
  *
@@ -80,6 +82,7 @@ import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } 
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
+import { SearxngPanel } from "./searxng-settings.tsx";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
@@ -89,9 +92,29 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
 
+/** The app-managed local SearXNG engine (blog review plan M2) leads the
+ *  search menu; the keyed engines follow from the core catalog. */
+const SEARXNG_LABEL = "SearXNG (local)";
+
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
-export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf", "blog"] as const;
+
+/** Row hints for toggles whose name alone doesn't say enough. */
+const TOOL_HINTS: Partial<Record<(typeof TOGGLE_TOOLS)[number], string>> = {
+	blog: "Read and fact-check article links (also turns off the fact-checker)",
+};
+
+/** Compose one blog-review switch (blog review plan M3): its own
+ *  agent.blog subsection, the rest carried verbatim. Pure — exported for
+ *  tests. */
+export function composeBlogSetting(
+	agent: AgentSettings | undefined,
+	key: "autoShareFullText" | "injectionCheck",
+	on: boolean,
+): AgentSettings {
+	return { ...agent, blog: { ...agent?.blog, [key]: on } };
+}
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -194,12 +217,20 @@ export function composeSearchEngine(
 	agent: AgentSettings | undefined,
 	engine: SearchEngineId | null,
 ): AgentSettings {
+	const searxng = agent?.search?.searxng;
 	if (engine === null) {
 		if (!agent?.search) return { ...agent };
 		const { search: _drop, ...rest } = agent;
-		return { ...rest } as AgentSettings;
+		// Clearing the pin keeps the SearXNG switch (a separate setting).
+		return (searxng ? { ...rest, search: { searxng } } : { ...rest }) as AgentSettings;
 	}
-	return { ...agent, search: { engine } };
+	return { ...agent, search: { engine, ...(searxng ? { searxng } : {}) } };
+}
+
+/** Compose: the SearXNG switch (blog review plan M2). Off writes an explicit
+ *  false; the engine pin is carried untouched. Pure — exported for tests. */
+export function composeSearxngEnabled(agent: AgentSettings | undefined, enabled: boolean): AgentSettings {
+	return { ...agent, search: { ...agent?.search, searxng: { enabled } } };
 }
 
 /** The indicator under a row whose override IS the version in use (owner
@@ -409,7 +440,7 @@ export function AgentSection({
 	// the hint contradicted the trigger it sits under.
 	useEffect(() => {
 		refreshSearch();
-	}, [agent?.search?.engine]);
+	}, [agent?.search?.engine, agent?.search?.searxng?.enabled]);
 
 	// The dropdown contract (the chat model selector's, mirrored): any
 	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
@@ -492,6 +523,7 @@ export function AgentSection({
 		active: boolean,
 		live: boolean | null,
 		onPick: () => void,
+		marks: { on: string; off: string } = { on: "✓ key", off: "· no key" },
 	) => (
 		<button
 			key={id}
@@ -504,7 +536,7 @@ export function AgentSection({
 		>
 			<span>{label}</span>
 			<span className="text-muted-foreground">
-				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>· no key</span>}
+				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>{marks.on}</span> : <span aria-hidden>{marks.off}</span>}
 			</span>
 		</button>
 	);
@@ -839,6 +871,7 @@ export function AgentSection({
 					<SettingsRow
 						key={id}
 						label={`Tool · ${id}`}
+						hint={TOOL_HINTS[id]}
 						testid={`tool-row-${id}`}
 					>
 						<Toggle
@@ -848,6 +881,41 @@ export function AgentSection({
 						/>
 					</SettingsRow>
 				))}
+				{(() => {
+					// Blog review switches (plan M3, owner 2026-11-06): both OFF by
+					// default; dimmed while the blog tool itself is off.
+					const blogOn = agent?.tools?.blog ?? true;
+					return (
+						<>
+							<SettingsRow
+								label="Blog · share full text"
+								hint="Give the agent the whole article, not just the brief (more tokens)"
+								testid="blog-row-full-text"
+								dimmed={!blogOn}
+							>
+								<Toggle
+									checked={agent?.blog?.autoShareFullText === true}
+									disabled={!blogOn}
+									label="share full article text automatically"
+									onChange={(on) => onSectionChange(composeBlogSetting(agent, "autoShareFullText", on))}
+								/>
+							</SettingsRow>
+							<SettingsRow
+								label="Blog · AI injection check"
+								hint="When a page hides text, an isolated AI judges whether it targets the agent (more tokens)"
+								testid="blog-row-injection-check"
+								dimmed={!blogOn}
+							>
+								<Toggle
+									checked={agent?.blog?.injectionCheck === true}
+									disabled={!blogOn}
+									label="AI injection check"
+									onChange={(on) => onSectionChange(composeBlogSetting(agent, "injectionCheck", on))}
+								/>
+							</SettingsRow>
+						</>
+					);
+				})()}
 				{(() => {
 					const folders = agent?.fileAccess?.folders ?? [];
 					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
@@ -892,25 +960,28 @@ export function AgentSection({
 				})()}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
+					const searxngOn = agent?.search?.searxng?.enabled === true;
 					const anyKey = SEARCH_ENGINES.some(({ id }) => engineKeys[id] === true);
+					const anyEngine = searxngOn || anyKey;
 					const open = openMenu?.target === "search";
 					return (
+						<>
 						<SettingsRow
 							label="Search engine"
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
-							dimmed={!anyKey}
+							dimmed={!anyEngine}
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger
-									value={SEARCH_ENGINES.find(({ id }) => id === engine)?.label ?? ""}
+									value={engine === "searxng" ? SEARXNG_LABEL : SEARCH_ENGINES.find(({ id }) => id === engine)?.label ?? ""}
 									emptyLabel="Automatic"
 									ariaLabel="Search engine"
 									testid="search-engine-trigger"
 									open={open}
 									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
 									widthClass="min-w-20"
-									disabled={!anyKey}
+									disabled={!anyEngine}
 								/>
 								{open && (
 									<MenuShell
@@ -923,6 +994,10 @@ export function AgentSection({
 											onSectionChange(composeSearchEngine(agent, null));
 											setOpenMenu(null);
 										})}
+										{engineOption("searxng", SEARXNG_LABEL, engine === "searxng", searxngOn, () => {
+											onSectionChange(composeSearchEngine(agent, "searxng"));
+											setOpenMenu(null);
+										}, { on: "✓ on", off: "· off" })}
 										{SEARCH_ENGINES.map(({ id, label }) =>
 											engineOption(id, label, engine === id, engineKeys[id] ?? false, () => {
 												onSectionChange(composeSearchEngine(agent, id));
@@ -933,6 +1008,12 @@ export function AgentSection({
 								)}
 							</span>
 						</SettingsRow>
+						<SearxngPanel
+							enabled={searxngOn}
+							onEnabledChange={(on) => onSectionChange(composeSearxngEnabled(agent, on))}
+							onStatusChange={refreshSearch}
+						/>
+						</>
 					);
 				})()}
 			</SettingsGroup>

@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
+import { CornerDownLeftIcon, DumbbellIcon, GlobeIcon } from "lucide-react";
+import { normalizeArticleUrl, useBlogEnabled } from "@/components/blog-enabled";
+import { BLOG_URL_ERROR } from "@/components/new-session";
+import { blogOpeningPrompt } from "@/src/core";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
@@ -92,7 +95,14 @@ export function Home({
 	 *  may carry proposition picks from the chain table (the chip above
 	 *  the composer opens the picker; the picks seed the opening prompt).
 	 *  Not enforcing any input format — the picks are a convenience. */
-	const [mode, setMode] = useState<"teach" | "practice">("teach");
+	const [mode, setMode] = useState<"teach" | "practice" | "blog">("teach");
+	// Blog reviews (plan M4): a third mode whose input is an article link;
+	// hidden while Tool · blog is off.
+	const blogEnabled = useBlogEnabled();
+	const [urlError, setUrlError] = useState<string | null>(null);
+	useEffect(() => {
+		if (!blogEnabled && mode === "blog") setMode("teach");
+	}, [blogEnabled, mode]);
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
@@ -135,6 +145,12 @@ export function Home({
 			openModelPicker();
 			return; // Preserve the draft and never create an orphan session.
 		}
+		const blogUrl = mode === "blog" ? normalizeArticleUrl(t) : null;
+		if (mode === "blog" && !blogUrl) {
+			setUrlError(BLOG_URL_ERROR);
+			return;
+		}
+		setUrlError(null);
 		startingRef.current = true;
 		setBusy(true);
 		setStartError(false);
@@ -144,11 +160,17 @@ export function Home({
 			// graph-context marker as message[0] (a separate custom message
 			// before the learner's first user message, propositions + the
 			// chains among them); the prompt stays the learner's own words.
-			const target = await starterRef.current.start({
-				title: t,
-				...(mode === "practice" ? { kind: "practice" } : {}),
-				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
-			}, fetch, JSON.stringify(catalog?.slots.strong));
+			const target = await starterRef.current.start(
+				blogUrl
+					? { title: blogOpeningPrompt(blogUrl), kind: "blog", url: blogUrl }
+					: {
+						title: t,
+						...(mode === "practice" ? { kind: "practice" } : {}),
+						...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
+					},
+				fetch,
+				JSON.stringify(catalog?.slots.strong),
+			);
 			router.push(target);
 		} catch {
 			startingRef.current = false;
@@ -208,8 +230,8 @@ export function Home({
 
 			{/* New session — same floating blob as the chat composer, docked
 			    OVER the graph (no gradient: the graph runs clean under it to the
-			    bottom edge). Matches chat.tsx's DOCK geometry (max-w-[46rem]
-			    px-4) so nothing shifts when a session starts (owner). */}
+			    bottom edge). Keeps the original 46rem dock width; the chat dock
+			    widened to 80% (owner, 2026-11-06) and home stayed as it was. */}
 			<div className="pointer-events-none absolute inset-x-0 bottom-0 pb-5">
 				<div className="pointer-events-auto mx-auto w-full max-w-[46rem] px-4">
 					{/* The pick bar (owner vision, 2026-10-04): the chain
@@ -243,6 +265,7 @@ export function Home({
 						)}
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+					{urlError && <p role="alert" data-testid="home-url-error" className="mb-2 text-sm text-destructive">{urlError}</p>}
 					<form
 						data-attachment-composer=""
 						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
@@ -274,7 +297,7 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={mode === "practice" ? "What do you want to practice?" : mode === "blog" ? "Paste an article link (https://…)" : "What do you want to learn?"}
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
@@ -299,7 +322,7 @@ export function Home({
 						turns={[] as TurnUsage[]}
 						leadingSlot={
 							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
-								{(["teach", "practice"] as const).map((m) => (
+								{(blogEnabled ? (["teach", "practice", "blog"] as const) : (["teach", "practice"] as const)).map((m) => (
 									<button
 										key={m}
 										type="button"
@@ -313,7 +336,8 @@ export function Home({
 										}
 									>
 										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}
-										{m === "teach" ? "Teach" : "Practice"}
+										{m === "blog" ? <GlobeIcon aria-hidden="true" className="size-3" /> : null}
+										{m === "teach" ? "Teach" : m === "practice" ? "Practice" : "Blog"}
 									</button>
 								))}
 							</div>

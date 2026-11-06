@@ -21,6 +21,7 @@
 
 export type KeyAction =
 	| "toggle-dictation"
+	| "hold-dictation"
 	| "open-model-picker"
 	| "cycle-thinking"
 	| "toggle-sidebar"
@@ -56,6 +57,9 @@ export interface KeyActionDef {
 
 export const KEYBOARD_ACTIONS: readonly KeyActionDef[] = [
 	{ id: "toggle-dictation", label: "Toggle dictation", scope: "global", binding: "mod+d" },
+	// Hold-to-talk (owner, 2026-11-03): press starts, release stops. "mod"
+	// matches Ctrl on every OS (Cmd+Space stays Spotlight's on macOS).
+	{ id: "hold-dictation", label: "Hold to dictate", scope: "global", binding: "mod+space" },
 	{ id: "open-settings", label: "Open settings", scope: "global", binding: "mod+," },
 	{ id: "open-model-picker", label: "Model selector", scope: "global", binding: "mod+k" },
 	{ id: "cycle-thinking", label: "Cycle thinking level", scope: "global", binding: "shift+tab" },
@@ -170,11 +174,24 @@ export function eventBinding(e: KeyboardEvent): string {
  *  registry binds by character. */
 function modifiedKey(e: KeyboardEvent): string {
 	const key = e.key.toLowerCase();
+	if (key === " ") return "space"; // Ctrl+Space → "mod+space"
 	// Inspect the reported character: lowercasing can expand it (İ → i̇).
 	if (e.key.length !== 1 || e.key <= "\x7f" || !(e.metaKey || e.ctrlKey || e.altKey)) return key;
 	if (e.code === "Comma") return ",";
 	const letter = /^Key([A-Z])$/.exec(e.code);
 	return letter?.[1] ? letter[1].toLowerCase() : key;
+}
+
+/** True when this keyup releases part of a held `binding` — its key or one
+ *  of its modifiers (hold-to-talk ends on either). */
+export function releasesBinding(binding: string, e: KeyboardEvent): boolean {
+	const parts = binding.split("+");
+	const key = parts.pop()!;
+	const released = e.key === " " ? "space" : e.key.toLowerCase();
+	if (released === key) return true;
+	if (parts.includes("mod") && (released === "control" || released === "meta")) return true;
+	if (parts.includes("alt") && released === "alt") return true;
+	return parts.includes("shift") && released === "shift";
 }
 
 /** The window event name a registry action dispatches/answers on —

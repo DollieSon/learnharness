@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, GlobeIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { useBlogEnabled } from "@/components/blog-enabled";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -331,6 +332,9 @@ export function SessionRow({
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
+			{chat.kind === "blog" && (
+				<GlobeIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Blog review" />
+			)}
 		</button>
 	);
 }
@@ -388,7 +392,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 /** The three-way kind filter (practice sessions, owner 2026-10-04):
  *  Teaching / All / Practice — a client-side filter over the same
  *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
+export type SessionKindFilter = "teach" | "all" | "practice" | "blog";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
@@ -398,8 +402,12 @@ function SessionsSidebar() {
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
 		const stored = window.localStorage.getItem(KIND_FILTER_KEY);
-		if (stored === "teach" || stored === "all" || stored === "practice") setKindFilter(stored);
+		if (stored === "teach" || stored === "all" || stored === "practice" || stored === "blog") setKindFilter(stored);
 	}, []);
+	// Blog reviews (plan M4): the button and filter hide while Tool · blog
+	// is off; a stored Blog filter then reads as All.
+	const blogEnabled = useBlogEnabled();
+	const effectiveFilter: SessionKindFilter = kindFilter === "blog" && !blogEnabled ? "all" : kindFilter;
 	const setFilter = useCallback((f: SessionKindFilter) => {
 		setKindFilter(f);
 		window.localStorage.setItem(KIND_FILTER_KEY, f);
@@ -422,8 +430,8 @@ function SessionsSidebar() {
 	const shown = useMemo(() => {
 		const q = query.trim();
 		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
+		if (list && effectiveFilter !== "all") {
+			list = list.filter((c) => (c.kind ?? "teach") === effectiveFilter);
 		}
 		if (!list) return list;
 		if (!q) return list;
@@ -432,7 +440,7 @@ function SessionsSidebar() {
 			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	}, [chats, query, effectiveFilter]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -719,6 +727,18 @@ function SessionsSidebar() {
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
+					{blogEnabled && (
+						<button
+							type="button"
+							data-testid="new-session-blog"
+							onClick={() => router.push("/chat/new?mode=blog")}
+							className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<GlobeIcon className="size-3" />
+							Blog review
+							<span className="sr-only">create a new blog review</span>
+						</button>
+					)}
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
@@ -790,7 +810,7 @@ function SessionsSidebar() {
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
 				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
-					{(["teach", "practice", "all"] as const).map((f) => (
+					{(blogEnabled ? (["teach", "practice", "blog", "all"] as const) : (["teach", "practice", "all"] as const)).map((f) => (
 						<button
 							key={f}
 							type="button"
@@ -798,12 +818,12 @@ function SessionsSidebar() {
 							onClick={() => setFilter(f)}
 							className={cn(
 								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
-								kindFilter === f
+								effectiveFilter === f
 									? "bg-accent text-foreground"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
+							{f === "teach" ? "Teaching" : f === "all" ? "All" : f === "blog" ? "Blog" : "Practice"}
 						</button>
 					))}
 				</div>

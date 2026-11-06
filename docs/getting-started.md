@@ -13,7 +13,7 @@ Open **Settings → Providers** and configure a connection:
 
 Choose **Strong**, **Cheap**, and **Vision** models in Settings. There are no factory model selections. New sessions start with Strong; background roles use their assigned slots or role overrides. A model selected inside an existing session belongs to that session and does not change background-role choices.
 
-Optional web search supports Tavily, Brave, Exa, Firecrawl, and hosted Ollama search; configure a key for the engine you want to use. Research can still fetch known URLs without a search key. Dictation has its own service key below.
+Optional web search supports [local SearXNG](searxng.md) (the app runs it in Docker while it is open; no key), Tavily, Brave, Exa, Firecrawl, and hosted Ollama search; configure a key for a keyed engine. Research can still fetch known URLs without a search engine. Dictation is set up below.
 
 ## Start a session
 
@@ -25,7 +25,13 @@ Choose **Practice** for problems rather than a lesson. Start from selected graph
 
 Sessions are saved locally, including earlier messages when context is compacted. The [keyboard guide](keyboard.md) covers submission, focus, question controls, and cancellation.
 
+## Review an article
+
+Choose **Blog** on the home screen (or **Blog review** in the sidebar) and paste an article link. You first recall what you took from it; then the agent teaches what it gets right, what it gets wrong (with sources), what it leaves out, and related topics. The fact-checked write-up is saved to your sources. See [blog reviews](blog-review.md).
+
 ## Dictation
+
+On Windows the default engine is **Local Whisper**: the app downloads a pinned whisper.cpp build and a Whisper model, runs it on your NVIDIA GPU while the app is open, and keeps audio on your machine. No key is needed; see [local Whisper dictation](dictation-whisper.md). To use **Deepgram** instead:
 
 1. Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher**, required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant).
 2. Add it under **Settings → Providers → Dictation** and choose the language below the key. **Multilingual** supports automatic recognition and mixed-language speech.

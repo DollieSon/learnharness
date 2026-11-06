@@ -23,8 +23,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
 	const switches = readSettingsRecord()?.agent?.prompts ?? {};
 	return Response.json({
-		prober: effectivePromptSegments("prober", switches),
-		teacher: effectivePromptSegments("teacher", switches),
+		// Blog-session fragments (plan M4) list under their agent so they
+		// can be overridden like any other segment.
+		prober: effectivePromptSegments("prober", switches, { blog: true }),
+		teacher: effectivePromptSegments("teacher", switches, { blog: true }),
 		practice: effectivePromptSegments("practice", switches),
 	});
 }

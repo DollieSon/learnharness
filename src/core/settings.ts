@@ -34,8 +34,11 @@ import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
-import { isSearchEngineId, type SearchEngineId } from "./search.ts";
-import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { isSearchEngineId, type BlogSettings, type SearchEngineId, type SearchSettings } from "./search.ts";
+import {
+	DEFAULT_WHISPER_MODEL, isDictationEngine, isDictationLanguage, isWhisperModel,
+	type DictationEngine, type DictationLanguage, type WhisperModelId,
+} from "./dictation.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
@@ -340,6 +343,10 @@ export interface GeneralSettings {
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
 	language?: DictationLanguage;
+	/** Absent = the server platform's default (see defaultDictationEngine). */
+	engine?: DictationEngine;
+	/** The local Whisper model to load. */
+	whisperModel?: WhisperModelId;
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
@@ -354,8 +361,17 @@ export interface AgentSettings {
 	 *  never chooses an engine to make search work. An explicit choice only
 	 *  pins the preference (e.g. when BOTH keys are present); the chosen
 	 *  engine must still have its key, else search is honestly unavailable.
-	 *  Absent + no key = unavailable (no silent fallback, no default). */
-	search?: { engine?: SearchEngineId };
+	 *  Absent + no key = unavailable (no silent fallback, no default).
+	 *  `searxng.enabled` turns on the app-managed local engine (blog review
+	 *  plan M2, 2026-11-06), which then leads the auto order. */
+	search?: SearchSettings;
+	/** Blog review (plan M3, owner 2026-11-06), both OFF by default:
+	 *  `autoShareFullText` hands the cleaned article text (fenced as
+	 *  untrusted) to the agent with the brief — otherwise only the brief is
+	 *  shared and the learner can share the text per lesson from the card;
+	 *  `injectionCheck` runs the isolated AI judge on hidden page content
+	 *  (costs tokens, so opt-in). */
+	blog?: BlogSettings;
 	/** Prober graph tools (wave 7, owner ruling 2026-09-23): read-only
 	 *  knowledge-graph views for the prober agent — a session list +
 	 *  per-session propositions with understanding levels. Its SUBJECT
@@ -495,7 +511,8 @@ export interface UserSettings {
 export interface FactorySettings {
 	version: number;
 	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
+	/** No factory engine: it depends on the server platform. */
+	dictation: Required<Omit<DictationSettings, "engine">>;
 	appearance: {
 		mode: "dark" | "light";
 		background: string | null;
@@ -515,7 +532,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	general: { autoUpdate: true },
-	dictation: { language: "en" },
+	dictation: { language: "en", whisperModel: DEFAULT_WHISPER_MODEL },
 	appearance: {
 		mode: "dark",
 		background: null, // the dark default (#141414) lives in the mode's derivation curve
@@ -715,9 +732,18 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	// the write side's parser is strict — a stale client can't brick the
 	// record, it just loses the pin and auto-detection resumes).
 	if (raw.search !== null && typeof raw.search === "object" && !Array.isArray(raw.search)) {
-		const engine = (raw.search as Record<string, unknown>).engine;
-		if (isSearchEngineId(engine)) out.search = { engine };
+		const rawSearch = raw.search as Record<string, unknown>;
+		const search: SearchSettings = {};
+		if (isSearchEngineId(rawSearch.engine)) search.engine = rawSearch.engine;
+		const searxng = rawSearch.searxng;
+		if (searxng !== null && typeof searxng === "object" && !Array.isArray(searxng)) {
+			const enabled = (searxng as Record<string, unknown>).enabled;
+			if (typeof enabled === "boolean") search.searxng = { enabled };
+		}
+		if (Object.keys(search).length) out.search = search;
 	}
+	const blog = sanitizeBlogSettings(raw.blog);
+	if (blog) out.blog = blog;
 	// Prober graph tools (wave 7): its own agent-section subsection —
 	// lenient read side (a bad shape drops the key and the default ON
 	// resumes; the write side's parser is strict).
@@ -734,6 +760,16 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		out.fileAccess = parsed.ok ? parsed.settings : { restricted: true, folders: [] };
 	}
 	return out;
+}
+
+/** Lenient read side of agent.blog: non-boolean fields drop. */
+function sanitizeBlogSettings(raw: unknown): BlogSettings | null {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const r = raw as Record<string, unknown>;
+	const out: BlogSettings = {};
+	if (typeof r.autoShareFullText === "boolean") out.autoShareFullText = r.autoShareFullText;
+	if (typeof r.injectionCheck === "boolean") out.injectionCheck = r.injectionCheck;
+	return Object.keys(out).length ? out : null;
 }
 
 function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
@@ -822,10 +858,13 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== undefined) {
 		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
+		// Each field survives on its own: one invalid value never drops the others.
+		const fields = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+		const dictation: DictationSettings = {};
+		if (isDictationLanguage(fields.language)) dictation.language = fields.language;
+		if (isDictationEngine(fields.engine)) dictation.engine = fields.engine;
+		if (isWhisperModel(fields.whisperModel)) dictation.whisperModel = fields.whisperModel;
+		out.dictation = dictation;
 	}
 	if (r.claudeCode !== undefined) {
 		const raw = r.claudeCode;

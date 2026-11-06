@@ -4,8 +4,17 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import { createWebTools } from "../src/agent/tools/web.ts";
+import { urlGuardDeps } from "../src/agent/tools/url-guard.ts";
+
+// No network includes DNS: the URL guard resolves every host — answer with
+// a public address so the stubbed fetch is what gets exercised.
+const realLookup = urlGuardDeps.lookup;
+urlGuardDeps.lookup = async () => [{ address: "93.184.215.14", family: 4 }];
+after(() => {
+	urlGuardDeps.lookup = realLookup;
+});
 import { jobTools } from "../src/agent/tools/jobs.ts";
 import { runResearcherAgent } from "../src/agent/subagents/researcher.ts";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type FauxResponseStep } from "@earendil-works/pi-ai";
@@ -28,7 +37,7 @@ describe("web_search on the injected port (web.ts)", () => {
 		assert.ok(web_search, "web_search is still exposed without a provider");
 		const out = await web_search!.execute!("c1", { query: "anything" });
 		const missing = "web_search is not available: no search engine is configured. " +
-			"Set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key in settings. Report in your brief that web search is unavailable.";
+			"Enable local SearXNG or set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key in settings. Report in your brief that web search is unavailable.";
 		assert.equal(out.details, missing);
 		assert.deepEqual(out.content, [{ type: "text", text: missing }]);
 		assert.notEqual(out.isError, true, "missing keys remain ordinary recoverable text, not a native error");

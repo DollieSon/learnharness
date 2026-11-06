@@ -29,8 +29,8 @@ import type {
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
-import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
-import { isDictationLanguage } from "../core/dictation.ts";
+import { isDictationEngine, isDictationLanguage, isWhisperModel } from "../core/dictation.ts";
+import { isSearchEngineId, SEARCH_ENGINE_IDS, type BlogSettings, type SearchSettings } from "../core/search.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -192,12 +192,32 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	if (raw.search !== undefined) {
 		const search = asRecord(raw.search);
 		if (!search) return { ok: false, error: "search must be an object" };
+		const next: SearchSettings = {};
 		if (search.engine !== undefined) {
 			if (!isSearchEngineId(search.engine)) {
-				return { ok: false, error: `search.engine must be ${SEARCH_ENGINES.map((engine) => `"${engine.id}"`).join(", ")}` };
+				return { ok: false, error: `search.engine must be ${SEARCH_ENGINE_IDS.map((id) => `"${id}"`).join(", ")}` };
 			}
-			settings.search = { engine: search.engine };
+			next.engine = search.engine;
 		}
+		if (search.searxng !== undefined) {
+			const searxng = asRecord(search.searxng);
+			if (!searxng || typeof searxng.enabled !== "boolean") {
+				return { ok: false, error: "search.searxng must be { enabled: boolean }" };
+			}
+			next.searxng = { enabled: searxng.enabled };
+		}
+		if (Object.keys(next).length) settings.search = next;
+	}
+	if (raw.blog !== undefined) {
+		const blog = asRecord(raw.blog);
+		if (!blog) return { ok: false, error: "blog must be an object" };
+		const next: BlogSettings = {};
+		for (const key of ["autoShareFullText", "injectionCheck"] as const) {
+			if (blog[key] === undefined) continue;
+			if (typeof blog[key] !== "boolean") return { ok: false, error: `blog.${key} must be a boolean` };
+			next[key] = blog[key];
+		}
+		settings.blog = next;
 	}
 	// Prober graph tools (wave 7, owner ruling 2026-09-23): an agent-section
 	// subsection, not a tool-toggles key — the mechanism is agent capability
@@ -407,13 +427,26 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
-/** dictation: { language?: one of Nova-3's supported language codes } */
+/** dictation: { language?: a Nova-3 language code, engine?: deepgram |
+ *  whisper-local, whisperModel?: a curated Whisper model }. Replace-whole:
+ *  the client sends the complete section. */
 export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.language === undefined) return { ok: true, settings: {} };
-	if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
-	return { ok: true, settings: { language: raw.language } };
+	const settings: DictationSettings = {};
+	if (raw.language !== undefined) {
+		if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
+		settings.language = raw.language;
+	}
+	if (raw.engine !== undefined) {
+		if (!isDictationEngine(raw.engine)) return { ok: false, error: "Unsupported dictation engine" };
+		settings.engine = raw.engine;
+	}
+	if (raw.whisperModel !== undefined) {
+		if (!isWhisperModel(raw.whisperModel)) return { ok: false, error: "Unsupported Whisper model" };
+		settings.whisperModel = raw.whisperModel;
+	}
+	return { ok: true, settings };
 }
 
 /** The custom endpoint's per-model pins (PATCH /api/custom-provider): the

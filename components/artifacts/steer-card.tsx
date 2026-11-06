@@ -6,6 +6,7 @@ import type { LhViewMessage } from "@/src/core";
 import { isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
+import { BlogResultCard, FactCheckCard } from "@/components/artifacts/blog-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
 
 /**
@@ -59,6 +60,13 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			return <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
 		case "visual":
 			return <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
+		case "blog": {
+			// The steer's id is "steer_<jobId>" — the share input names the job.
+			const jobId = (message.metadata as { subagentResult?: { jobId?: string } } | undefined)?.subagentResult?.jobId ?? "";
+			return <BlogResultCard jobId={jobId} output={data.result} />;
+		}
+		case "fact_check":
+			return <FactCheckCard output={data.result} />;
 	}
 }
 

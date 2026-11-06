@@ -1,4 +1,4 @@
-import { chainsForSelection, formatChainLine } from "@/src/core";
+import { BLOG_TITLE_PREFIX, chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
 import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
@@ -19,13 +19,33 @@ export async function GET() {
 	return Response.json({ chats });
 }
 
+/** The site name of a blog URL, or null when it isn't an http(s) URL. */
+function blogSiteOf(raw: unknown): string | null {
+	if (typeof raw !== "string") return null;
+	try {
+		const url = new URL(raw.trim());
+		if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+		return url.hostname.replace(/^www\./, "") || null;
+	} catch {
+		return null;
+	}
+}
+
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; url?: unknown };
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
-	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
+	// Blog reviews (blog review plan M4): kind "blog" requires the article's
+	// http(s) URL; the title starts as "Blog · <site>" and the blog job
+	// renames it to the article's title when the brief arrives.
+	const kind = body.kind === "practice" ? ("practice" as const) : body.kind === "blog" ? ("blog" as const) : undefined;
+	let blogSite: string | null = null;
+	if (kind === "blog") {
+		blogSite = blogSiteOf(body.url);
+		if (!blogSite) return Response.json({ error: "A blog review needs an http(s) article URL." }, { status: 400 });
+	}
+	const chat = createChat(blogSite ? `${BLOG_TITLE_PREFIX}${blogSite}` : titleFromPrompt(title || "Untitled session"), kind);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches

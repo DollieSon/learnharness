@@ -416,7 +416,8 @@ describe("Practice settings API and effective prompt loading", () => {
 		assert.equal(response.status, 200);
 		const view = await response.json();
 		for (const kind of ["teacher", "prober", "practice"] as const) {
-			assert.deepEqual(view[kind], effectivePromptSegments(kind, readSettingsRecord()?.agent?.prompts ?? {}));
+			// Teacher/prober rows also list the blog-session fragments (plan M4).
+			assert.deepEqual(view[kind], effectivePromptSegments(kind, readSettingsRecord()?.agent?.prompts ?? {}, { blog: kind !== "practice" }));
 		}
 		assert.deepEqual(view.practice.map((s: { path: string }) => s.path), [
 			"practice/00-base.md", "practice/10-doctrine.md",

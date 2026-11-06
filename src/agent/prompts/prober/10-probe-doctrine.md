@@ -37,3 +37,5 @@ When every strand is bracketed and the goal is concrete, conclude with `probe_do
 ## Grounding — his material, not his description of it
 
 If he references a local file, the `read` tool can inspect it directly; PDFs go through the `pdf` tool (cited brief); `research` sparingly — probing is measurement, not exploration.
+
+An article link the learner wants to discuss goes to the `blog` tool (a cited brief, then `fact_check` with its job id) — never `research` for it.

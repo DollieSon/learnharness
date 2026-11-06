@@ -452,6 +452,17 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "blog-full-text": {
+			// The learner's one-way article share (blog review plan M3): a
+			// compact centered chrome line — the model reads the content
+			// (the fenced article); the transcript never shows it.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-blog-full-text", id: `bt_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "problem-dismissed":
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.

@@ -61,8 +61,8 @@ Question drafts survive optimistic unmount in memory. Uncertain submissions reco
 
 | Agent | Interaction | Other tools |
 | --- | --- | --- |
-| Prober | `probe` or `recall`, `ask_user_question`, `probe_done` | Read-only files, research/PDF dispatch; gated graph readers |
-| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only files, research/PDF/demo/visual dispatch; `show_image` |
+| Prober | `probe` or `recall`, `ask_user_question`, `probe_done` | Read-only files, research/PDF/blog/fact-check dispatch; gated graph readers |
+| Teacher | `quiz` or `explain`, `ask_user_question`, `plan_init` | Read-only files, research/PDF/blog/fact-check/demo/visual dispatch; `show_image` |
 | Practitioner | `problem`, `conclude` | Read-only files, research/PDF dispatch; gated graph readers |
 
 Mechanic choices, settings toggles, and readiness affect availability. Practice side tools are composed separately from teaching toggles. Claude-family agents can receive `send_to_user`. Argument healing precedes semantic validation; invalid calls return errors the model can correct.
@@ -73,11 +73,13 @@ A matching successful `probe_done` result selects the teacher and queues a fresh
 
 Practice uses the same turn/persistence/recovery path, not a separate problem-set service. [`tools/practice.ts`](../src/agent/tools/practice.ts) commits a statement and solution with `problem`; `conclude` records the outcome and reveals that solution. A turn-scoped gate enforces one active problem. The post-conclusion pause is doctrine, not a terminating `conclude` result. Next adds an explicit marker. Practice outcomes are session evidence, not graph mastery; ordinary practice settlement skips extraction.
 
+**Blog reviews:** a `kind: "blog"` session runs the same prober → teacher arc with extra blog-only prompt fragments (`src/agent/prompts/blog-prober/`, `blog-teacher/`): read the linked article, recall first, then teach the fact-check. See [blog reviews](blog-review.md).
+
 [Prompt composition](../src/agent/prompts/README.md) and [tool-content display recovery](tool-content-recovery.md) have separate references.
 
 ## Background work
 
-Research, PDF, demo, and visual tools persist jobs, acknowledge dispatch, and start independent workers through [`subagents/runner.ts`](../src/agent/subagents/runner.ts). Demos are checked using the browser helper; visuals use render-and-inspect loops. PDF/SVG rendering is native; demo execution uses Electron's browser service with system Chrome fallback.
+Research, PDF, blog-reader, fact-check, demo, and visual tools persist jobs, acknowledge dispatch, and start independent workers through [`subagents/runner.ts`](../src/agent/subagents/runner.ts); the blog pair is described in [blog reviews](blog-review.md). Demos are checked using the browser helper; visuals use render-and-inspect loops. PDF/SVG rendering is native; demo execution uses Electron's browser service with system Chrome fallback.
 
 Worker completion and session delivery are separate. The worker saves its outcome and pending-delivery metadata before queueing a marker. [`server/jobs.ts`](../src/server/jobs.ts) delivers by steering a live agent at a native boundary or waking an idle, eligible session. Pending questions, pause, consent, or admission races can hold delivery. Only computing workers are abortable.
 
@@ -115,6 +117,8 @@ The [extractor](../src/agent/subagents/extraction.ts) reads source text and prop
 `POST /api/graph/import` feeds text or locally converted PDF Markdown into the same pipeline, without chat-message anchors. The [import UI](../components/notes-import.tsx) queues one request per supported file, up to three in flight. Files are capped at 25 MiB; server aggregate file bytes per request are also capped at 25 MiB, with a 26 MiB multipart/proxy bound. PDF conversion has no OCR; skipped image-only pages and scanner caveats are reported.
 
 Source identity hashes the original path/name; safe folder-relative paths can be supplied alongside matching filenames. Renaming or reorganizing a displayed source does not change its identity. Every explicit import processes the whole file, even unchanged text; retry is not exactly-once processing. Same-source overlap is refused as busy. Per-file outcomes distinguish completed, partial, failed, aborted, and busy; zero findings can still be a completed import.
+
+A successful blog fact-check also imports through `extraction.importNotes`: a write-up built from the verdicts (never the raw article) under the path `Blog reviews/<site> › <path>.md`, so one article URL is one source ([blog reviews](blog-review.md#saving-to-the-graph)).
 
 `graph/source-organization.json` holds display overrides and folder placement, not original file contents. Folder imports reconstruct directories containing supported files. Organization is separate from session-sidebar placement. Both the chains browser and practice’s node picker hide practice-session source rows; this is a read projection, not deletion of conversations, graph contributions or placements. Folder selection excludes those hidden sources. Empty source names are muted in place, using full contents rather than search-filtered counts. Ordinary chains-view selection selects sources/folders, including descendants hidden by search; practice can select finer-grained graph material.
 
@@ -161,7 +165,7 @@ Read-only file tools default to the server user's home, not a selected project o
 
 The **sensitive-path guard** refuses known private home locations, `.env` files, configured auth/subscription files, and recognized credential temporary files. It checks named/canonical paths and aliases; walks skip protected locations. It is path-based defense in depth, not a content scanner, sandbox, or allowed-folders setting. Other sensitive files and learning records can remain readable. See [`fs-shared.ts`](../src/agent/tools/fs-shared.ts).
 
-File/PDF/visual images share image postprocessing. Search supports Tavily, Brave, Exa, Firecrawl, and hosted Ollama adapters; page fetching is independent and does not need a search key. Dictation mints short-lived tokens server-side and streams audio browser → Deepgram. These external effects are not isolated by a scratch data directory alone.
+File/PDF/visual images share image postprocessing. Search supports the app-managed local SearXNG container ([local search](searxng.md)) and Tavily, Brave, Exa, Firecrawl, and hosted Ollama adapters; an explicit pin never switches silently. Page fetching is independent and does not need a search engine. Pages are read locally (`readPage` in `src/agent/tools/web.ts`): a URL guard refuses non-public addresses on every redirect and browser sub-request, and a hidden-content scanner strips text a human reader can't see before any agent reads it. Dictation has two engines. Deepgram mints short-lived tokens server-side, then streams audio browser → Deepgram. Local Whisper (Windows) records in the browser and POSTs one WAV per run to the app server, which forwards it to a managed loopback whisper.cpp process; see [local Whisper dictation](dictation-whisper.md). These external effects are not isolated by a scratch data directory alone.
 
 ## Verification starting points
 

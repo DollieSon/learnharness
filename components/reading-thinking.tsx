@@ -103,7 +103,7 @@ export function ReadingThinkingField({
 					}
 				}}
 				placeholder="Whatever comes to mind as you read."
-				className="field-sizing-content lh-input max-h-40 w-full resize-none bg-transparent py-0.5 outline-none placeholder:text-muted-foreground/70"
+				className="field-sizing-content lh-input max-h-[25vh] w-full resize-none bg-transparent py-0.5 outline-none placeholder:text-muted-foreground/70"
 			/>
 		</div>
 	);

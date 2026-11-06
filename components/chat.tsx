@@ -37,6 +37,7 @@ import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import {
+	blogTextShared,
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	cliContextWindowOf,
@@ -44,6 +45,7 @@ import {
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
 	type ChatInput,
+	type ChatKind,
 	type ChatSettings,
 	type LhMessage,
 	type ModelSlotName,
@@ -52,7 +54,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, DumbbellIcon, FileTextIcon, GlobeIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -91,20 +93,24 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 /**
  * Width tokens (wave-5 reskin, owner decision): the teaching PROSE spans the
  * full session width with a thin px-6 margin; the composer/question DOCK is
- * deliberately narrower (~46rem centered) per the reference. Same ELEMENT,
- * same place — width polish only.
+ * centered at 80% of the band — 10% margin each side (owner, 2026-11-06:
+ * the old 46rem cap left long thinking dumps narrow and tall). Same
+ * ELEMENT, same place — width polish only.
  */
 const COLUMN = "mx-auto w-full max-w-none px-6";
-const DOCK = "mx-auto w-full max-w-[46rem] px-4";
-// The DOCK container's fixed width (46rem) and the plan marginalia's
-// geometry (owner, plan-placement round): the bare diagram sits in the
-// dock band's RIGHT flank — MARGIN_GAP from the DOCK container's edge and
-// the same from the column's right edge. The box width is pure CSS, so
-// the diagram shrinks CONTINUOUSLY with the flank; MARGIN_MIN_W is only
-// the fade floor (owner, resize round) — below it the marginalia fades
-// out over the normal transition instead of popping away, and it stays
-// mounted while the question owns the band so widening fades it back.
-const DOCK_W = 46 * 16;
+const DOCK = "mx-auto w-full max-w-[80%] px-4";
+// The DOCK container's width as a fraction of the band, and the plan
+// marginalia's geometry (owner, plan-placement round): the bare diagram
+// sits in the dock band's RIGHT flank — MARGIN_GAP from the DOCK
+// container's edge and the same from the column's right edge. The box
+// width is pure CSS, so the diagram shrinks CONTINUOUSLY with the flank;
+// MARGIN_MIN_W is only the fade floor (owner, resize round) — below it the
+// marginalia fades out over the normal transition instead of popping away,
+// and it stays mounted while the question owns the band so widening fades
+// it back. With the 80% dock the flank is ~10% of the band, so the
+// marginalia is hidden on most screens (owner, 2026-11-06: accepted — the
+// top-bar plan chip still opens the plan).
+const DOCK_FRACTION = 0.8;
 const MARGIN_GAP = 16;
 const MARGIN_MIN_W = 220;
 // The dock overlay's gradient band (h-24) — part of the reserved tail.
@@ -124,11 +130,19 @@ const EXPAND_DIST = 16;
  * local state in one pull. sendText feeds the demo error-fix loop.
  * (contracts.ts "THE ASYNC PROTOCOL" §4.)
  */
+export type BlogShareState = "shared" | "blocked" | "ready";
+
 export const ChatActionsContext = createContext<{
 	chatId: string;
 	syncFromServer: () => Promise<void>;
 	/** Send a user message into the session (demo error-fix loop, W6). */
 	sendText: (text: string) => void;
+	/** The blog card's one-way "Share full text with the agent" (M3). */
+	shareBlogText?: (jobId: string) => void;
+	/** The share button's state for one blog job: already shared (auto or
+	 *  earlier click), blocked for now (a turn running or a question
+	 *  open), or ready. */
+	blogShareState?: (jobId: string) => BlogShareState;
 	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
 	 *  deep-link into the same SetupDialog the send interception uses. */
 	openSetup: () => void;
@@ -230,8 +244,9 @@ export function Chat({
 	initialError?: string;
 	/** The session kind (practice sessions, owner 2026-10-04): practice
 	 *  renders no phase chip (no probe→teach arc applies) and a Practice
-	 *  tag rides the header instead. */
-	kind?: "teach" | "practice";
+	 *  tag rides the header instead. Blog reviews (plan M4) keep the phase
+	 *  chip and add a Blog tag beside it. */
+	kind?: ChatKind;
 	initialPrompt?: string;
 	/** A teacher turn is running server-side but attached to no client
 	 * (navigated away mid-turn, returned while in flight). */
@@ -1261,6 +1276,11 @@ export function Chat({
 				sendText: (t: string) => {
 					void send({ type: "text", text: t });
 				},
+				shareBlogText: (jobId: string) => {
+					void send({ type: "share-blog-text", jobId });
+				},
+				blogShareState: (jobId: string) =>
+					blogTextShared(nativeMessages, jobId) ? "shared" : busy || pending ? "blocked" : "ready",
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
@@ -1393,7 +1413,19 @@ export function Chat({
 							Practice
 						</span>
 					) : (
-						<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						<>
+							{kind === "blog" && (
+								<span
+									data-testid="blog-chip"
+									aria-hidden="true"
+									className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+								>
+									<GlobeIcon className="size-3" />
+									Blog
+								</span>
+							)}
+							<PhaseChip phase={phases.at(-1) ?? "probe"} />
+						</>
 					)}
 				</TopBar>
 
@@ -1447,6 +1479,19 @@ export function Chat({
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-blog-full-text":
+												// The learner's one-way article share (blog review
+												// plan M3): chrome, the same register as Next problem.
+												return (
+													<div
+														key={pi}
+														data-testid="blog-text-shared-line"
+														className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
+													>
+														<FileTextIcon className="size-3" />
+														Shared the article's full text
+													</div>
+												);
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1882,7 +1927,7 @@ export function escAbortTarget(s: {
 	 *  abort (a live turn can be running BEHIND an idle problem only in
 	 *  teaching sessions — practice problems end their pose turns). */
 	problem: boolean;
-	busy: boolean;
+	busy?: boolean;
 }): EscAbortTarget {
 	if (s.abortAsk) return null; // the popup's own Esc — claimed by the dialog
 	if (s.mermaidFocus) return "mermaid";
@@ -2114,7 +2159,7 @@ function DockOverlay({
 		const block = blockRef.current;
 		if (!block) return;
 		const measure = () => {
-			const next = Math.round(block.offsetWidth / 2 - DOCK_W / 2 - 2 * MARGIN_GAP);
+			const next = Math.round((block.offsetWidth * (1 - DOCK_FRACTION)) / 2 - 2 * MARGIN_GAP);
 			if (Math.abs(next - flankWRef.current) > 1) {
 				flankWRef.current = next;
 				setFlankW(next);
@@ -2469,7 +2514,7 @@ function DockOverlay({
 						type="button"
 						data-testid="plan-marginalia"
 						onClick={onOpenPlan}
-						style={{ left: `calc(50% + ${DOCK_W / 2 + MARGIN_GAP}px)` }}
+						style={{ left: `calc(${50 + DOCK_FRACTION * 50}% + ${MARGIN_GAP}px)` }}
 						className={`absolute bottom-5 right-4 top-0 cursor-pointer transition-[filter,opacity] duration-300 ease-out ${
 							expanded && flankW >= MARGIN_MIN_W
 								? "pointer-events-auto opacity-100 blur-0"
